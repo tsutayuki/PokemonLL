@@ -34,7 +34,7 @@ const researchCards: ResearchCard[] = [
     icon: Gauge,
     accent: "mint",
     metrics: ["SCP順位比較", "実数値", "リーグ別"],
-    href: "/research/iv",
+    href: "#/research/iv",
   },
   {
     title: "ダメージブレイク研究",
@@ -43,7 +43,7 @@ const researchCards: ResearchCard[] = [
     icon: Crosshair,
     accent: "amber",
     metrics: ["通常技", "ゲージ技", "ブレイクポイント"],
-    href: "#",
+    href: "#/",
   },
   {
     title: "バトルシミュレーション研究",
@@ -52,7 +52,7 @@ const researchCards: ResearchCard[] = [
     icon: Swords,
     accent: "red",
     metrics: ["対面検証", "シールド", "シミュレーション"],
-    href: "#",
+    href: "#/",
   },
   {
     title: "6体6パーティ考察研究",
@@ -61,14 +61,20 @@ const researchCards: ResearchCard[] = [
     icon: UsersRound,
     accent: "blue",
     metrics: ["補完表", "役割", "分析"],
-    href: "#",
+    href: "#/",
   },
 ];
 
 function App() {
-  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const [route, setRoute] = React.useState(() => getRouteFromHash(window.location.hash));
 
-  if (path === "/research/iv") {
+  React.useEffect(() => {
+    const onHashChange = () => setRoute(getRouteFromHash(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  if (route === "/research/iv") {
     return <IvResearchPage />;
   }
 
@@ -79,7 +85,7 @@ function App() {
         <div className="hero-overlay" />
 
         <nav className="topbar" aria-label="メインナビゲーション">
-          <a className="brand" href="/" aria-label="PokemonLL ホーム">
+          <a className="brand" href="#/" aria-label="PokemonLL ホーム">
             <span className="brand-mark">
               <Activity size={18} strokeWidth={2.4} />
             </span>
@@ -184,3 +190,8 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+
+function getRouteFromHash(hash: string) {
+  const normalized = hash.replace(/^#/, "").replace(/\/+$/, "");
+  return normalized === "" ? "/" : normalized;
+}

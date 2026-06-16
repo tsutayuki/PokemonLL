@@ -172,7 +172,7 @@ export function IvResearchPage() {
   return (
     <main className="research-page">
       <header className="page-shell">
-        <a className="back-link" href="/">
+        <a className="back-link" href="#/">
           <ArrowLeft size={18} />
           <span>ホームに戻る</span>
         </a>
