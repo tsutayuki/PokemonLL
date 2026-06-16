@@ -1,3 +1,5 @@
+import { pokemonNameMapJa } from "./pokemonNameMap";
+
 export type PogoStatRecord = {
   base_attack: number;
   base_defense: number;
@@ -185,4 +187,3 @@ export function computeBestRankings(
 
   return rows.map((row, index) => ({ ...row, rank: index + 1 }));
 }
-import { pokemonNameMapJa } from "./pokemonNameMap";

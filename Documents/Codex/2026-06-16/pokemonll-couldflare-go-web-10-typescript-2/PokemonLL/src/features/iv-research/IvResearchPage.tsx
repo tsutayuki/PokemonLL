@@ -19,7 +19,7 @@ import {
   type PogoStatRecord,
   type RankingRow,
   type SpeciesGroup,
-} from "../pogoResearch";
+} from "../../lib/pogo/research";
 
 type LoadedData = {
   stats: PogoStatRecord[];

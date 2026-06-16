@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 const statsPath = path.join(projectRoot, "public/data/pokemon_stats.json");
-const outputPath = path.join(projectRoot, "src/pokemonNameMap.ts");
+const outputPath = path.join(projectRoot, "src/lib/pogo/pokemonNameMap.ts");
 
 const stats = JSON.parse(await fs.readFile(statsPath, "utf8"));
 const ids = [...new Set(stats.map((entry) => entry.pokemon_id))].sort((a, b) => a - b);
@@ -35,7 +35,7 @@ const content = `export const pokemonNameMapJa: Record<number, string> = ${JSON.
   Object.fromEntries(entries),
   null,
   2,
-)} as const;\n\nexport function getPokemonDisplayName(pokemonId: number, fallback: string) {\n  return pokemonNameMapJa[pokemonId] ?? fallback;\n}\n`;
+)} as const;\n`;
 
 await fs.writeFile(outputPath, content, "utf8");
 console.log(`Wrote ${outputPath} with ${entries.length} entries.`);
