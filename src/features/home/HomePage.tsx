@@ -24,7 +24,7 @@ type ResearchCard = {
 
 const researchCards: ResearchCard[] = [
   {
-    title: "ポケモン個体値研究",
+    title: "pkmn個体値研究",
     description: "1匹のポケモンごとにCP、SCP、攻撃/防御/HPの個体値・実数値を比較して育成候補を研究",
     status: "CP / SCP / Rank",
     icon: Gauge,
