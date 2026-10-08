@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LeagueIconButton, LeagueMark } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import {
   buildCpMultiplierMap,
@@ -170,7 +171,7 @@ export function IvResearchPage() {
               </button>
               <button type="button" className="mon-pick-sprite" aria-label="ポケモン選択" onClick={() => openPokemonSearch(chooseGroup)}>
                 {selected ? (
-                  <PokemonDotSprite pokemonId={selected.pokemonId} alt="" size={64} />
+                  <PokemonDotSprite pokemonId={selected.pokemonId} form={entry?.form} alt="" size={64} />
                 ) : (
                   <img className="pokemon-dot-sprite" src="/Image/placeholder.svg" alt="" width={64} height={64} />
                 )}
@@ -208,14 +209,16 @@ export function IvResearchPage() {
               {entry && cpData ? (
                 <div className="check-board">
                   <div className="check-sprite">
-                    <PokemonDotSprite pokemonId={entry.pokemon_id} alt="" size={64} />
+                    <PokemonDotSprite pokemonId={entry.pokemon_id} form={entry.form} alt="" size={64} />
                   </div>
                   {CHECK_LEAGUES.map((league) => {
                     const row = checkRanks.get(league.cap)?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
                     const before = row ? previousCp(entry, row, stats, preevo, cpData) : null;
                     return (
                       <article key={league.id} className="check-league">
-                        <h2>{league.label}</h2>
+                        <h2>
+                          <LeagueMark id={league.id} label={league.label} />
+                        </h2>
                         {row ? (
                           <div className="check-stats">
                             <p className="check-rank num">#{row.rank}</p>
@@ -240,15 +243,13 @@ export function IvResearchPage() {
               <IvBars atk={atkIv} def={defIv} sta={staIv} onChange={(next) => { setAtkIv(next.atk); setDefIv(next.def); setStaIv(next.sta); }} />
               <div className="choice-row league-row" role="group" aria-label="リーグ">
                 {STUDY_LEAGUES.map((league) => (
-                  <button
+                  <LeagueIconButton
                     key={league.id}
-                    type="button"
-                    className="choice"
-                    aria-pressed={studyLeague === league.id}
+                    id={league.id}
+                    label={league.label}
+                    pressed={studyLeague === league.id}
                     onClick={() => setStudyLeague(league.id)}
-                  >
-                    {league.label}
-                  </button>
+                  />
                 ))}
               </div>
               {studyLeague === "custom" ? (

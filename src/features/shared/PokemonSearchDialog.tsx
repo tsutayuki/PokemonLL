@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
+import { matchesNameQuery } from "../../lib/pogo/kanaSearch";
 import { speciesDisplayName, type SpeciesGroup } from "../../lib/pogo/research";
 
 export function PokemonSearchDialog({
@@ -32,18 +33,8 @@ export function PokemonSearchDialog({
 
     return groups
       .filter((group) => {
-        const english = group.name.toLowerCase();
-        const japanese = speciesDisplayName(group).toLowerCase();
-        const dex = String(group.pokemonId);
-        const padded = dex.padStart(4, "0");
         const form = group.entries.some((entry) => entry.form.toLowerCase().includes(normalized));
-        return (
-          english.includes(normalized) ||
-          japanese.includes(normalized) ||
-          dex === normalized ||
-          padded === normalized ||
-          form
-        );
+        return form || matchesNameQuery(normalized, speciesDisplayName(group), group.name, group.pokemonId);
       })
       .slice(0, 100);
   }, [counts, groups, query]);
@@ -71,7 +62,7 @@ export function PokemonSearchDialog({
           <input
             className="input"
             type="search"
-            placeholder="ポケモン名で検索"
+            placeholder="ひらがな・カタカナ・ローマ字・図鑑番号"
             autoComplete="off"
             spellCheck={false}
             value={query}
@@ -83,7 +74,7 @@ export function PokemonSearchDialog({
           </button>
         </div>
         <p className="search-overlay-hint">
-          {query.trim() ? "名前か図鑑番号" : "選択回数が多い順に100匹"}
+          {query.trim() ? "ひらがな・カタカナ・ローマ字・英語名・図鑑番号" : "選択回数が多い順に100匹"}
         </p>
         <div className="search-overlay-results" role="listbox">
           {results.length === 0 ? (

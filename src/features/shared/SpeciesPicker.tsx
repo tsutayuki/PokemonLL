@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { speciesDisplayName, type SpeciesGroup } from "../../lib/pogo/research";
+import { PokemonDotSprite } from "../../components/PokemonDotSprite";
+import { matchesNameQuery } from "../../lib/pogo/kanaSearch";
+import { pickPreferredEntry, speciesDisplayName, type SpeciesGroup } from "../../lib/pogo/research";
 
 export function SpeciesPicker({
   groups,
@@ -19,11 +21,7 @@ export function SpeciesPicker({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return groups.slice(0, compact ? 24 : 40);
     return groups
-      .filter((group) => {
-        const english = group.name.toLowerCase();
-        const japanese = speciesDisplayName(group).toLowerCase();
-        return english.includes(normalized) || japanese.includes(normalized);
-      })
+      .filter((group) => matchesNameQuery(normalized, speciesDisplayName(group), group.name, group.pokemonId))
       .slice(0, compact ? 24 : 40);
   }, [compact, groups, query]);
 
@@ -38,7 +36,7 @@ export function SpeciesPicker({
           className="input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="名前で検索"
+          placeholder="ひらがな・カタカナ・ローマ字"
           type="search"
           autoComplete="off"
           spellCheck={false}
@@ -59,6 +57,7 @@ export function SpeciesPicker({
                 className={`species-item${selected ? " is-selected" : ""}`}
                 onClick={() => onSelect(group)}
               >
+                <PokemonDotSprite pokemonId={group.pokemonId} form={pickPreferredEntry(group).form} alt="" size={36} />
                 <span className="species-name">{speciesDisplayName(group)}</span>
                 <span className="species-meta">No.{String(group.pokemonId).padStart(4, "0")}</span>
               </button>

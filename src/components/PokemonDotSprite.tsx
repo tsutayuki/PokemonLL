@@ -1,30 +1,25 @@
 import React from "react";
-import { pokemonDexImagePath, pokemonDexPlaceholderPath, pokemonDotSpriteSize } from "../lib/pogo/pokemonSprite";
+import { pokemonDotSpriteSize, pokemonSpriteCandidates } from "../lib/pogo/pokemonSprite";
 
 type PokemonDotSpriteProps = {
   pokemonId: number;
   alt: string;
   size?: number;
   className?: string;
-  /** 図鑑画像の拡張子（デフォルト png） */
-  extension?: string;
+  form?: string;
 };
 
-export function PokemonDotSprite({
-  pokemonId,
-  alt,
-  size = 40,
-  className,
-  extension = "png",
-}: PokemonDotSpriteProps) {
-  const primary = pokemonDexImagePath(pokemonId, extension);
-  const fallback = pokemonDexPlaceholderPath();
+export function PokemonDotSprite({ pokemonId, alt, size = 40, className, form }: PokemonDotSpriteProps) {
+  const candidates = pokemonSpriteCandidates(pokemonId, form);
+  const key = candidates.join("|");
   const intrinsic = pokemonDotSpriteSize();
-  const [src, setSrc] = React.useState(primary);
+  const [index, setIndex] = React.useState(0);
 
   React.useEffect(() => {
-    setSrc(primary);
-  }, [primary]);
+    setIndex(0);
+  }, [key]);
+
+  const src = candidates[Math.min(index, candidates.length - 1)] ?? candidates[0];
 
   return (
     <img
@@ -39,7 +34,7 @@ export function PokemonDotSprite({
       style={{ width: size, height: size }}
       data-intrinsic-size={intrinsic}
       onError={() => {
-        if (src !== fallback) setSrc(fallback);
+        setIndex((current) => (current < candidates.length - 1 ? current + 1 : current));
       }}
     />
   );

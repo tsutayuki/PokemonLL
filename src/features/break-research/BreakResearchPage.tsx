@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { SpeciesPicker } from "../shared/SpeciesPicker";
 import { useResearchData } from "../shared/useResearchData";
 import { damageForMove, hitsToKo, nextAttackBreakpoint, nextDefenseBulkpoint, type PvpMove } from "../../lib/pogo/combat";
@@ -249,19 +250,17 @@ export function BreakResearchPage() {
 
       {data ? (
         <>
-          <div className="choice-row" role="group" aria-label="リーグ">
+          <div className="choice-row league-row" role="group" aria-label="リーグ">
             {leagueConfigs
               .filter((league) => league.id !== "custom")
               .map((league) => (
-                <button
+                <LeagueIconButton
                   key={league.id}
-                  type="button"
-                  className="choice"
-                  aria-pressed={league.id === leagueId}
+                  id={league.id}
+                  label={league.label}
+                  pressed={league.id === leagueId}
                   onClick={() => setLeagueId(league.id)}
-                >
-                  {league.label}
-                </button>
+                />
               ))}
           </div>
 
