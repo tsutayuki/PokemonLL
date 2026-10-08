@@ -1628,7 +1628,8 @@ select.input {
   inset: 0;
   z-index: 80;
   display: grid;
-  place-items: end center;
+  align-items: start;
+  justify-content: center;
 }
 
 .search-overlay-backdrop {
@@ -1640,13 +1641,15 @@ select.input {
 
 .search-overlay-panel {
   position: relative;
+  align-self: start;
+  justify-self: center;
   width: min(40rem, 100%);
-  max-height: min(92vh, 46rem);
+  max-height: min(100dvh, 46rem);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.85rem;
-  padding: 1.15rem 1.15rem calc(1.15rem + env(safe-area-inset-bottom));
-  border-radius: 12px 12px 0 0;
+  padding: calc(0.85rem + env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  border-radius: 0 0 12px 12px;
   background: var(--surface);
 }
 
@@ -1704,13 +1707,10 @@ select.input {
     align-items: start;
   }
 
-  .search-overlay {
-    place-items: center;
-  }
-
   .search-overlay-panel {
+    margin-top: max(1rem, calc((100dvh - min(80dvh, 40rem)) / 2));
+    max-height: min(80dvh, 40rem);
     border-radius: 12px;
-    max-height: min(80vh, 40rem);
   }
 }
 
