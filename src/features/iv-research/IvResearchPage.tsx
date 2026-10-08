@@ -11,6 +11,7 @@ import {
   formatFormLabel,
   formatPlace,
   formatScp,
+  hasStrictUpgrade,
   pickPreferredEntry,
   placeTone,
   speciesDisplayName,
@@ -257,17 +258,20 @@ export function IvResearchPage() {
                           <p className="check-name">{member.label}</p>
                         </div>
                         {CHECK_LEAGUES.map((league) => {
-                          const row = checkRanks
-                            .get(`${member.key}:${league.cap}`)
-                            ?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
+                          const ranks = checkRanks.get(`${member.key}:${league.cap}`);
+                          const row = ranks?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
                           const before = row ? previousCp(member, row, stats, evolutions, levelScale.byLevel) : null;
+                          const dominated = row && ranks ? hasStrictUpgrade(row, ranks) : false;
                           return (
                             <div key={league.id} className="check-cell">
                               {row ? (
                                 <>
                                   <p className={`check-rank place num ${placeTone(row.rank)}`}>{formatPlace(row.rank)}</p>
                                   <p className="check-mid num">
-                                    <span>CP {row.cp}</span>
+                                    <span>
+                                      CP {row.cp}
+                                      {dominated ? <span className="cp-dominate"> ↓</span> : null}
+                                    </span>
                                     <span>SCP {formatScp(row.statProduct)}</span>
                                   </p>
                                   <p className="check-fine num">攻撃 {formatBattleStat(row.attack, 2)}</p>
@@ -283,6 +287,7 @@ export function IvResearchPage() {
                       </div>
                     ))}
                   </div>
+                  <p className="check-dominate-note">上位互換個体がいる場合はCPの横に「↓」が出ます</p>
                 </div>
               ) : (
                 <p className="note">ポケモンを選ぶと、リーグごとの順位が出ます。</p>

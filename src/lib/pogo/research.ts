@@ -157,9 +157,28 @@ export function computeDerivedStats(
   return { attack, defense, stamina, cp, statProduct };
 }
 
-/** みんポケ表示に合わせ、実数値積を1000で割って切り捨てた値。 */
+/** みんポケのSCP。端数を切ったHPを含む攻撃×防御×HPを、2/3乗して10で割り、小数点以下を切り捨てる。 */
 export function formatScp(statProduct: number) {
-  return Math.floor(statProduct / 1000);
+  if (!(statProduct > 0)) return 0;
+  return Math.floor(Math.pow(statProduct, 2 / 3) / 10);
+}
+
+const STAT_EPS = 1e-4;
+
+/** 攻撃・防御・HPがすべて同じか上で、どれか一つは上の個体がいる。 */
+export function hasStrictUpgrade(current: RankingRow, rows: RankingRow[]) {
+  return rows.some((other) => {
+    if (other.atkIv === current.atkIv && other.defIv === current.defIv && other.staIv === current.staIv) return false;
+    const attackUp = other.attack > current.attack + STAT_EPS;
+    const defenseUp = other.defense > current.defense + STAT_EPS;
+    const staminaUp = other.stamina > current.stamina;
+    return (
+      other.attack >= current.attack - STAT_EPS &&
+      other.defense >= current.defense - STAT_EPS &&
+      other.stamina >= current.stamina &&
+      (attackUp || defenseUp || staminaUp)
+    );
+  });
 }
 
 /** 相棒ボーナス。ゲームマスターのレベル51と、50→51の半レベル刻み。 */

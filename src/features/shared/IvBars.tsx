@@ -43,10 +43,19 @@ function IvBar({
   const valueFromClientX = (clientX: number) => {
     const bar = barRef.current;
     if (!bar) return value;
-    const rect = bar.getBoundingClientRect();
-    if (rect.width <= 0) return value;
-    const index = Math.floor(((clientX - rect.left) / rect.width) * 16);
-    return Math.max(0, Math.min(15, index));
+    const cells = bar.querySelectorAll<HTMLButtonElement>(".iv-bar-cell");
+    if (cells.length === 0) return value;
+    let nearest = 0;
+    let best = Number.POSITIVE_INFINITY;
+    cells.forEach((cell, index) => {
+      const rect = cell.getBoundingClientRect();
+      const distance = Math.abs(clientX - (rect.left + rect.width / 2));
+      if (distance < best) {
+        best = distance;
+        nearest = index;
+      }
+    });
+    return nearest;
   };
 
   return (
@@ -74,8 +83,7 @@ function IvBar({
         }}
       >
         {Array.from({ length: 16 }, (_, index) => {
-          const filled = index <= value;
-          const tone = !filled ? "" : index === 0 ? " is-zero" : " is-fill";
+          const tone = ivTone(index, value);
           return (
             <button
               key={index}
@@ -96,4 +104,13 @@ function IvBar({
       </div>
     </div>
   );
+}
+
+function ivTone(index: number, value: number) {
+  if (index > value) return "";
+  if (index === 0) return " is-zero";
+  if (index <= 5) return " is-iv-low";
+  if (index <= 10) return " is-iv-mid";
+  if (index <= 14) return " is-iv-high";
+  return " is-iv-max";
 }
