@@ -1145,6 +1145,7 @@ select.input {
 .iv-page .iv-tabbar {
   width: min(100%, 50rem);
   margin-inline: auto;
+  min-width: 0;
 }
 
 .iv-title-row {
@@ -1168,6 +1169,7 @@ select.input {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
 }
 
 .recent-chip {
@@ -1177,6 +1179,19 @@ select.input {
   background: var(--surface);
   cursor: pointer;
   line-height: 0;
+}
+
+@media (max-width: 640px) {
+  .recent-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+  }
+
+  .recent-chip {
+    flex: none;
+  }
 }
 
 .mon-pick-main {
@@ -1623,6 +1638,38 @@ select.input {
 .rank-stat-filters {
   display: grid;
   gap: 0.75rem;
+}
+
+.rank-floor-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.rank-floor-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-recalc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex: none;
+  margin: 0 0 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rank-recalc input {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
 }
 
 .rank-board.is-roomy .rank-stat-filters {

@@ -28,9 +28,22 @@ const WIDE_STATS_PX = 416;
 /** 攻撃・防御・HPの入力を3列にできる幅。 */
 const ROOMY_FILTERS_PX = 544;
 
-export function RankTable({ rows, current }: { rows: RankingRow[]; current: RankingRow | null }) {
+export function RankTable({
+  rows,
+  current,
+  onIvFloor,
+  floor = 0,
+  recalc = false,
+}: {
+  rows: RankingRow[];
+  current: RankingRow | null;
+  onIvFloor?: (floor: number, recalc: boolean) => void;
+  floor?: (typeof IV_FLOORS)[number];
+  recalc?: boolean;
+}) {
   const [limit, setLimit] = useState<number | null>(100);
-  const [ivFloor, setIvFloor] = useState<(typeof IV_FLOORS)[number]>(0);
+  const [ivFloor, setIvFloor] = useState<(typeof IV_FLOORS)[number]>(floor);
+  const [recalcRank, setRecalcRank] = useState(recalc);
   const [attackText, setAttackText] = useState("");
   const [attackBound, setAttackBound] = useState<Bound>("ge");
   const [defenseText, setDefenseText] = useState("");
@@ -167,20 +180,38 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
         </button>
         {detailOpen ? (
           <div className="rank-detail" id="rank-detail-filters">
-            <label className="field">
-              <span className="field-label">個体値最低</span>
-              <select
-                className="input"
-                value={ivFloor}
-                onChange={(event) => setIvFloor(Number(event.target.value) as (typeof IV_FLOORS)[number])}
-              >
-                {IV_FLOORS.map((floor) => (
-                  <option key={floor} value={floor}>
-                    {floor}以上
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="rank-floor-row">
+              <label className="field">
+                <span className="field-label">個体値最低</span>
+                <select
+                  className="input"
+                  value={ivFloor}
+                  onChange={(event) => {
+                    const floor = Number(event.target.value) as (typeof IV_FLOORS)[number];
+                    setIvFloor(floor);
+                    onIvFloor?.(floor, recalcRank);
+                  }}
+                >
+                  {IV_FLOORS.map((floor) => (
+                    <option key={floor} value={floor}>
+                      {floor}以上
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="rank-recalc">
+                <input
+                  type="checkbox"
+                  checked={recalcRank}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setRecalcRank(next);
+                    onIvFloor?.(ivFloor, next);
+                  }}
+                />
+                順位再計算
+              </label>
+            </div>
             <div className="rank-stat-filters">
               <StatFilter
                 label="攻撃"

@@ -5,17 +5,24 @@ const COUNT_KEY = "pokemonll.pickCounts.v1";
 const RECENT_LIMIT = 10;
 
 type PickSnapshot = {
-  recent: number[];
+  recent: string[];
   counts: Record<string, number>;
 };
 
 const listeners = new Set<() => void>();
 
-function readRecent(): number[] {
+function readRecent(): string[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((value) => Math.floor(Number(value))).filter((value) => value > 0).slice(0, RECENT_LIMIT);
+    const keys = parsed
+      .map((value) => {
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) return String(Math.floor(value));
+        if (typeof value === "string" && /^[\w:.-]+$/.test(value)) return value;
+        return "";
+      })
+      .filter((value) => value.length > 0);
+    return keys.filter((value, index) => keys.indexOf(value) === index).slice(0, RECENT_LIMIT);
   } catch {
     return [];
   }
@@ -57,11 +64,11 @@ export function recordPokemonPick(pokemonId: number, countKey?: string) {
   const id = Math.floor(pokemonId);
   if (!id) return;
 
-  const recent = [id, ...readRecent().filter((value) => value !== id)].slice(0, RECENT_LIMIT);
+  const key = countKey && /^[\w:.-]+$/.test(countKey) ? countKey : String(id);
+  const recent = [key, ...readRecent().filter((value) => value !== key)].slice(0, RECENT_LIMIT);
   localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
 
   const counts = readCounts();
-  const key = countKey && /^[\w:.-]+$/.test(countKey) ? countKey : String(id);
   counts[key] = (counts[key] ?? 0) + 1;
   localStorage.setItem(COUNT_KEY, JSON.stringify(counts));
   publish();

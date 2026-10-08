@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LeagueIconButton, LeagueMark } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
-import { buildEvolutionLine, type EvolutionData, type LineMember } from "../../lib/pogo/evolutionLine";
+import { buildEvolutionLine, buildSearchGroups, type EvolutionData, type LineMember } from "../../lib/pogo/evolutionLine";
 import { pokemonDexPlaceholderPath } from "../../lib/pogo/pokemonSprite";
 import {
   buildCpMultiplierMap,
@@ -60,6 +60,8 @@ export function IvResearchPage() {
   const [buddy, setBuddy] = useState(false);
   const [checkFloor, setCheckFloor] = useState<(typeof IV_FLOORS)[number]>(0);
   const [studyLeague, setStudyLeague] = useState<StudyLeagueId>("great");
+  const [studyFloor, setStudyFloor] = useState(0);
+  const [studyRecalc, setStudyRecalc] = useState(false);
   const [customCap, setCustomCap] = useState(1500);
   const { recent } = usePokemonPicks();
 
@@ -121,10 +123,15 @@ export function IvResearchPage() {
     return map;
   }, [checkFloor, levelScale, maxLevel, members, tab]);
 
+  const searchGroups = useMemo(
+    () => (stats && evolutions ? buildSearchGroups(stats, evolutions) : []),
+    [evolutions, stats],
+  );
+
   const studyRanks = useMemo(() => {
     if (!entry || !levelScale || tab !== "study") return [];
-    return computeBestRankings(entry, levelScale.levels, levelScale.byLevel, studyCap, maxLevel);
-  }, [entry, levelScale, maxLevel, studyCap, tab]);
+    return computeBestRankings(entry, levelScale.levels, levelScale.byLevel, studyCap, maxLevel, studyRecalc ? studyFloor : 0);
+  }, [entry, levelScale, maxLevel, studyCap, studyFloor, studyRecalc, tab]);
 
   const studyCurrent = useMemo(
     () => studyRanks.find((row) => row.atkIv === atkIv && row.defIv === defIv && row.staIv === staIv) ?? null,
@@ -136,18 +143,34 @@ export function IvResearchPage() {
     setForm(pickPreferredEntry(group).form);
   };
 
-  const chooseRecent = (pokemonId: number) => {
-    if (!stats) return;
-    const named = stats.find((item) => item.pokemon_id === pokemonId);
-    if (!named) return;
-    const entries = stats.filter((item) => item.pokemon_name === named.pokemon_name);
-    const group: SpeciesGroup = {
-      name: named.pokemon_name,
-      pokemonId: Math.min(...entries.map((item) => item.pokemon_id)),
-      entries,
-    };
+  const resolveRecent = (key: string) => {
+    const exact = searchGroups.find((group) => group.name === key);
+    if (exact) return exact;
+    if (!/^\d+$/.test(key)) return null;
+    return (
+      searchGroups.find((group) => group.name === `${key}:Normal`) ??
+      searchGroups.find((group) => group.pokemonId === Number(key) && !group.exactSprite) ??
+      null
+    );
+  };
+
+  const recentGroups = (() => {
+    const seen = new Set<string>();
+    const list: SpeciesGroup[] = [];
+    for (const key of recent) {
+      const group = resolveRecent(key);
+      if (!group || seen.has(group.name)) continue;
+      seen.add(group.name);
+      list.push(group);
+    }
+    return list;
+  })();
+
+  const chooseRecent = (key: string) => {
+    const group = resolveRecent(key);
+    if (!group) return;
     chooseGroup(group);
-    recordPokemonPick(group.pokemonId);
+    recordPokemonPick(group.pokemonId, group.name);
   };
 
   return (
@@ -173,13 +196,23 @@ export function IvResearchPage() {
       {stats ? (
         <>
           <section className="mon-pick" aria-label="ポケモン選択">
-            {recent.length > 0 ? (
+            {recentGroups.length > 0 ? (
               <div className="recent-row" aria-label="最近選んだポケモン">
-                {recent.map((pokemonId) => (
-                  <button key={pokemonId} type="button" className="recent-chip" onClick={() => chooseRecent(pokemonId)}>
-                    <PokemonDotSprite pokemonId={pokemonId} alt="" size={40} />
-                  </button>
-                ))}
+                {recentGroups.map((group) => {
+                  const label = speciesDisplayName(group);
+                  return (
+                    <button key={group.name} type="button" className="recent-chip" aria-label={label} onClick={() => chooseRecent(group.name)}>
+                      <PokemonDotSprite
+                        pokemonId={group.pokemonId}
+                        form={group.exactSprite ? undefined : group.entries[0]?.form}
+                        exact={group.exactSprite}
+                        spriteSuffix={group.spriteSuffix}
+                        alt={label}
+                        size={40}
+                      />
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
             <div className="mon-pick-main">
@@ -350,25 +383,38 @@ export function IvResearchPage() {
                   />
                 </label>
               ) : null}
-              {entry && studyCurrent ? (
+              {entry && (studyCurrent || studyRanks.length > 0) ? (
                 <div className="study-layout">
-                  <section className="study-summary" aria-label="個体分析">
-                    <div>
-                      <p className="study-kicker">順位</p>
-                      <p className={`check-rank place num ${placeTone(studyCurrent.rank)}`}>{formatPlace(studyCurrent.rank)}</p>
-                    </div>
-                    <div className="study-side">
-                      <p className="check-mid num">CP {studyCurrent.cp}</p>
-                      <p className="check-mid num">SCP {formatScp(studyCurrent.statProduct)}</p>
-                    </div>
-                    <div className="study-side check-fine num">
-                      <p>攻撃 {studyCurrent.attack.toFixed(1)}</p>
-                      <p>防御 {studyCurrent.defense.toFixed(1)}</p>
-                      <p>HP {studyCurrent.stamina}</p>
-                      <p>レベル {studyCurrent.level.toFixed(1)}</p>
-                    </div>
-                  </section>
-                  <RankTable rows={studyRanks} current={studyCurrent} />
+                  {studyCurrent ? (
+                    <section className="study-summary" aria-label="個体分析">
+                      <div>
+                        <p className="study-kicker">順位</p>
+                        <p className={`check-rank place num ${placeTone(studyCurrent.rank)}`}>{formatPlace(studyCurrent.rank)}</p>
+                      </div>
+                      <div className="study-side">
+                        <p className="check-mid num">CP {studyCurrent.cp}</p>
+                        <p className="check-mid num">SCP {formatScp(studyCurrent.statProduct)}</p>
+                      </div>
+                      <div className="study-side check-fine num">
+                        <p>攻撃 {studyCurrent.attack.toFixed(1)}</p>
+                        <p>防御 {studyCurrent.defense.toFixed(1)}</p>
+                        <p>HP {studyCurrent.stamina}</p>
+                        <p>レベル {studyCurrent.level.toFixed(1)}</p>
+                      </div>
+                    </section>
+                  ) : (
+                    <p className="note">この個体は個体値最低を下回っています。</p>
+                  )}
+                  <RankTable
+                    rows={studyRanks}
+                    current={studyCurrent}
+                    floor={studyFloor as (typeof IV_FLOORS)[number]}
+                    recalc={studyRecalc}
+                    onIvFloor={(floor, recalc) => {
+                      setStudyFloor(floor);
+                      setStudyRecalc(recalc);
+                    }}
+                  />
                 </div>
               ) : (
                 <p className="note">{entry ? "このCP帯には入りません。" : "ポケモンを選ぶと、このリーグの順位と上位表が出ます。"}</p>
