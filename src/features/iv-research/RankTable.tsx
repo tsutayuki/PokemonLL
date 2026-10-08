@@ -27,8 +27,6 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 
 /** この幅なら攻撃・防御の小数第2位を足しても、列が詰まって見えない。 */
 const WIDE_STATS_PX = 416;
-/** 順位とIVのプルダウンを横に並べられる幅。 */
-const PAIR_FILTERS_PX = 400;
 /** 攻撃・防御・HPの入力を3列にできる幅。 */
 const ROOMY_FILTERS_PX = 544;
 
@@ -43,8 +41,8 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
   const [hpBound, setHpBound] = useState<Bound>("ge");
   const [sortKey, setSortKey] = useState<SortKey>("rank");
   const [sortDir, setSortDir] = useState<SortDir>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [wideStats, setWideStats] = useState(false);
-  const [pairFilters, setPairFilters] = useState(false);
   const [roomyFilters, setRoomyFilters] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -77,7 +75,6 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
     const update = () => {
       const width = board.clientWidth;
       setWideStats(width >= WIDE_STATS_PX);
-      setPairFilters(width >= PAIR_FILTERS_PX);
       setRoomyFilters(width >= ROOMY_FILTERS_PX);
     };
     update();
@@ -136,65 +133,77 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
   ]
     .filter(Boolean)
     .join(" ");
-  const boardClass = ["rank-board", pairFilters ? "is-pair" : "", roomyFilters ? "is-roomy" : "", wideStats ? "is-wide" : ""]
-    .filter(Boolean)
-    .join(" ");
+  const boardClass = ["rank-board", roomyFilters ? "is-roomy" : "", wideStats ? "is-wide" : ""].filter(Boolean).join(" ");
+  const detailActive = ivFloor !== 0 || attackText !== "" || defenseText !== "" || hpText !== "";
 
   return (
     <div className={boardClass} ref={boardRef}>
       <div className="rank-filters">
-        <div className="rank-filter-pair">
-          <label className="field">
-            <span className="field-label">SCP順位</span>
-            <select
-              className="input"
-              value={limit === null ? "all" : String(limit)}
-              onChange={(event) => {
-                const value = event.target.value;
-                setLimit(value === "all" ? null : Number(value));
-              }}
-            >
-              {RANK_FILTERS.map((filter) => (
-                <option key={filter.label} value={filter.limit === null ? "all" : filter.limit}>
-                  {filter.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">IV最低</span>
-            <select
-              className="input"
-              value={ivFloor}
-              onChange={(event) => setIvFloor(Number(event.target.value) as (typeof IV_FLOORS)[number])}
-            >
-              {IV_FLOORS.map((floor) => (
-                <option key={floor} value={floor}>
-                  {floor}以上
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="rank-stat-filters">
-          <StatFilter
-            label="攻撃"
-            value={attackText}
-            onValue={setAttackText}
-            bound={attackBound}
-            onBound={setAttackBound}
-            integer={false}
-          />
-          <StatFilter
-            label="防御"
-            value={defenseText}
-            onValue={setDefenseText}
-            bound={defenseBound}
-            onBound={setDefenseBound}
-            integer={false}
-          />
-          <StatFilter label="HP" value={hpText} onValue={setHpText} bound={hpBound} onBound={setHpBound} integer />
-        </div>
+        <label className="rank-scp">
+          <span className="field-label">SCP順位</span>
+          <select
+            className="input rank-scp-select"
+            value={limit === null ? "all" : String(limit)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setLimit(value === "all" ? null : Number(value));
+            }}
+          >
+            {RANK_FILTERS.map((filter) => (
+              <option key={filter.label} value={filter.limit === null ? "all" : filter.limit}>
+                {filter.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="rank-detail-toggle"
+          aria-expanded={detailOpen}
+          aria-controls="rank-detail-filters"
+          onClick={() => setDetailOpen((open) => !open)}
+        >
+          <span>詳細絞り込み</span>
+          {detailActive ? <span className="rank-detail-active">適用中</span> : null}
+          <span aria-hidden="true">{detailOpen ? "▲" : "▼"}</span>
+        </button>
+        {detailOpen ? (
+          <div className="rank-detail" id="rank-detail-filters">
+            <label className="field">
+              <span className="field-label">IV最低</span>
+              <select
+                className="input"
+                value={ivFloor}
+                onChange={(event) => setIvFloor(Number(event.target.value) as (typeof IV_FLOORS)[number])}
+              >
+                {IV_FLOORS.map((floor) => (
+                  <option key={floor} value={floor}>
+                    {floor}以上
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="rank-stat-filters">
+              <StatFilter
+                label="攻撃"
+                value={attackText}
+                onValue={setAttackText}
+                bound={attackBound}
+                onBound={setAttackBound}
+                integer={false}
+              />
+              <StatFilter
+                label="防御"
+                value={defenseText}
+                onValue={setDefenseText}
+                bound={defenseBound}
+                onBound={setDefenseBound}
+                integer={false}
+              />
+              <StatFilter label="HP" value={hpText} onValue={setHpText} bound={hpBound} onBound={setHpBound} integer />
+            </div>
+          </div>
+        ) : null}
       </div>
       {current && !currentInList ? (
         <p className="rank-outside">この個体は {formatPlace(current.rank)} で、いまの絞り込みの外です。</p>

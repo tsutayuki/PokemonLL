@@ -1556,17 +1556,61 @@ select.input {
 
 .rank-filters {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.45rem;
 }
 
-.rank-filter-pair,
+.rank-scp {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.rank-scp .field-label {
+  flex: none;
+}
+
+.rank-filters .input.rank-scp-select {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding-top: 0.28rem;
+  padding-bottom: 0.28rem;
+}
+
+.rank-detail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.28rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rank-detail-toggle[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.rank-detail-active {
+  color: var(--accent-deep);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.rank-detail,
 .rank-stat-filters {
   display: grid;
   gap: 0.75rem;
-}
-
-.rank-board.is-pair .rank-filter-pair {
-  grid-template-columns: 1fr 1fr;
 }
 
 .rank-board.is-roomy .rank-stat-filters {
