@@ -1524,14 +1524,45 @@ select.input {
 }
 
 .rank-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
-.rank-filters .choice {
-  min-height: 2.5rem;
-  padding: 0.4rem 0.8rem;
+.rank-filter-pair,
+.rank-stat-filters {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.rank-board.is-pair .rank-filter-pair {
+  grid-template-columns: 1fr 1fr;
+}
+
+.rank-board.is-roomy .rank-stat-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rank-stat-controls {
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.rank-stat-controls .rank-stat-value {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-stat-controls .rank-cmp {
+  width: 5.75rem;
+  flex: none;
+  padding-right: 1.7rem;
+  background-position: right 0.45rem center;
+}
+
+.rank-filters .input {
+  min-height: 2.75rem;
 }
 
 .rank-outside {
@@ -1544,6 +1575,14 @@ select.input {
   margin: 0;
   color: var(--text-faint);
   font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.rank-empty {
+  margin: 0.75rem 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  text-align: center;
 }
 
 .rank-grid {
@@ -1553,7 +1592,20 @@ select.input {
   column-gap: 0.4rem;
   min-height: 2.35rem;
   font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
   text-align: center;
+}
+
+.rank-grid > span {
+  white-space: nowrap;
+}
+
+.rank-board:not(.is-wide) .rank-grid.is-atk-fine {
+  grid-template-columns: 3.15rem 3.55rem minmax(3.2rem, 1.25fr) minmax(2rem, 1fr) minmax(2rem, 0.9fr) 2.05rem 2.2rem;
+}
+
+.rank-board:not(.is-wide) .rank-grid.is-def-fine {
+  grid-template-columns: 3.15rem 3.55rem minmax(2rem, 1fr) minmax(3.2rem, 1.25fr) minmax(2rem, 0.9fr) 2.05rem 2.2rem;
 }
 
 .rank-grid > :first-child {

@@ -189,6 +189,11 @@ export function formatPlace(rank: number) {
   return `${rank}位`;
 }
 
+/** 攻撃・防御の表示。通常は小数第1位。個体チェック、並べ替え中の列、幅のある順位表は第2位。 */
+export function formatBattleStat(value: number, digits: 1 | 2) {
+  return value.toFixed(digits);
+}
+
 /** 1位は金、2–9位は赤、10–99位はオレンジ。 */
 export function placeTone(rank: number) {
   if (rank === 1) return "is-gold";
