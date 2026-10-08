@@ -44,9 +44,9 @@ function pokemonPickCounts(): Plugin {
           const chunks: Buffer[] = [];
           req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
           req.on("end", () => {
-            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}") as { id?: number };
-            const id = String(Math.floor(Number(body.id)));
-            if (!/^\d+$/.test(id) || id === "0") {
+            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}") as { id?: number | string };
+            const id = String(body.id ?? "");
+            if (!/^[\w:.-]+$/.test(id) || id.length > 96) {
               res.statusCode = 400;
               res.end("bad id");
               return;

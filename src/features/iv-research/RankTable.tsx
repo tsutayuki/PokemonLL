@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatBattleStat, formatPlace, type RankingRow } from "../../lib/pogo/research";
+import { formatBattleStat, formatPlace, IV_FLOORS, type RankingRow } from "../../lib/pogo/research";
 
 const RANK_FILTERS = [
   { label: "100位以内", limit: 100 },
@@ -8,8 +8,6 @@ const RANK_FILTERS = [
   { label: "1000位以内", limit: 1000 },
   { label: "すべて", limit: null },
 ] as const;
-
-const IV_FLOORS = [0, 1, 2, 3, 5, 6, 10, 12] as const;
 
 type SortKey = "rank" | "iv" | "attack" | "defense" | "stamina" | "level" | "cp";
 type SortDir = "asc" | "desc" | null;
@@ -170,7 +168,7 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
         {detailOpen ? (
           <div className="rank-detail" id="rank-detail-filters">
             <label className="field">
-              <span className="field-label">IV最低</span>
+              <span className="field-label">個体値最低</span>
               <select
                 className="input"
                 value={ivFloor}

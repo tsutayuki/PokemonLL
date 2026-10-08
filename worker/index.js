@@ -25,8 +25,8 @@ export default {
       }
       if (request.method === "POST") {
         const body = await request.json().catch(() => ({}));
-        const id = String(Math.floor(Number(body.id)));
-        if (!/^\d+$/.test(id) || id === "0") {
+        const id = String(body.id ?? "");
+        if (!/^[\w:.-]+$/.test(id) || id.length > 96) {
           return new Response("bad id", { status: 400 });
         }
         const counts = await readCounts(env);

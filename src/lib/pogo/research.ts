@@ -26,7 +26,13 @@ export type SpeciesGroup = {
   name: string;
   pokemonId: number;
   entries: PogoStatRecord[];
+  /** 検索でフォルムやメガを分けて出すときの表示名。 */
+  label?: string;
+  exactSprite?: boolean;
+  spriteSuffix?: number | null;
 };
+
+export const IV_FLOORS = [0, 1, 2, 3, 5, 6, 10, 12] as const;
 
 export type DerivedStats = {
   attack: number;
@@ -66,7 +72,7 @@ export function pickPreferredEntry(group: SpeciesGroup) {
 }
 
 export function speciesDisplayName(group: SpeciesGroup) {
-  return getPokemonDisplayName(group.pokemonId, group.name);
+  return group.label ?? getPokemonDisplayName(group.pokemonId, group.name);
 }
 
 const levelOrder = (a: number, b: number) => a - b;
@@ -227,12 +233,14 @@ export function computeBestRankings(
   byLevel: Map<string, number>,
   cap: number,
   maxLevel = 50,
+  ivFloor = 0,
 ) {
   const rows: RankingRow[] = [];
+  const floor = Math.max(0, Math.min(15, Math.floor(ivFloor)));
 
-  for (let atkIv = 0; atkIv <= 15; atkIv += 1) {
-    for (let defIv = 0; defIv <= 15; defIv += 1) {
-      for (let staIv = 0; staIv <= 15; staIv += 1) {
+  for (let atkIv = floor; atkIv <= 15; atkIv += 1) {
+    for (let defIv = floor; defIv <= 15; defIv += 1) {
+      for (let staIv = floor; staIv <= 15; staIv += 1) {
         let best: RankingRow | null = null;
 
         for (const level of levels) {

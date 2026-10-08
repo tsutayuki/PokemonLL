@@ -23,18 +23,19 @@ export function PokemonSearchDialog({
     if (!normalized) {
       return [...groups]
         .sort((a, b) => {
-          const countA = counts[String(a.pokemonId)] ?? 0;
-          const countB = counts[String(b.pokemonId)] ?? 0;
+          const countA = searchCount(a, counts);
+          const countB = searchCount(b, counts);
           if (countB !== countA) return countB - countA;
-          return a.pokemonId - b.pokemonId;
+          return a.pokemonId - b.pokemonId || (a.label ?? "").localeCompare(b.label ?? "", "ja");
         })
         .slice(0, 100);
     }
 
     return groups
       .filter((group) => {
-        const form = group.entries.some((entry) => entry.form.toLowerCase().includes(normalized));
-        return form || matchesNameQuery(normalized, speciesDisplayName(group), group.name, group.pokemonId);
+        const entry = group.entries[0];
+        const english = `${entry?.pokemon_name ?? ""} ${entry?.form ?? ""}`.trim();
+        return matchesNameQuery(normalized, speciesDisplayName(group), english, group.pokemonId);
       })
       .slice(0, 100);
   }, [counts, groups, query]);
@@ -87,7 +88,14 @@ export function PokemonSearchDialog({
                 className="search-result"
                 onClick={() => onSelect(group)}
               >
-                <PokemonDotSprite pokemonId={group.pokemonId} alt="" size={40} />
+                <PokemonDotSprite
+                  pokemonId={group.pokemonId}
+                  form={group.exactSprite ? undefined : group.entries[0]?.form}
+                  exact={group.exactSprite}
+                  spriteSuffix={group.spriteSuffix}
+                  alt=""
+                  size={40}
+                />
                 <span className="search-result-name">{speciesDisplayName(group)}</span>
                 <span className="search-result-no num">No.{String(group.pokemonId).padStart(4, "0")}</span>
               </button>
@@ -97,4 +105,11 @@ export function PokemonSearchDialog({
       </div>
     </div>
   );
+}
+
+function searchCount(group: SpeciesGroup, counts: Record<string, number>) {
+  const own = counts[group.name] ?? 0;
+  const entry = group.entries[0];
+  const legacy = entry?.form === "Normal" && !group.exactSprite ? (counts[String(group.pokemonId)] ?? 0) : 0;
+  return own + legacy;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { groupSpecies, type PogoStatRecord, type SpeciesGroup } from "../../lib/pogo/research";
+import { buildSearchGroups, type EvolutionData } from "../../lib/pogo/evolutionLine";
+import { type PogoStatRecord, type SpeciesGroup } from "../../lib/pogo/research";
 import { recordPokemonPick, refreshGlobalCounts, usePokemonPicks } from "../../lib/pogo/pokemonPicks";
 import { PokemonSearchDialog } from "./PokemonSearchDialog";
 import { bindPokemonSearch } from "./pokemonSearchApi";
@@ -13,10 +14,12 @@ export function PokemonSearchHost() {
   useEffect(() => {
     let cancelled = false;
     void refreshGlobalCounts();
-    void fetch("/data/pokemon_stats.json")
-      .then((response) => response.json())
-      .then((stats: PogoStatRecord[]) => {
-        if (!cancelled) setGroups(groupSpecies(stats));
+    void Promise.all([fetch("/data/pokemon_stats.json"), fetch("/data/pokemon_evolutions.json")])
+      .then(async ([statsRes, evoRes]) => {
+        if (!statsRes.ok || !evoRes.ok) return;
+        const stats = (await statsRes.json()) as PogoStatRecord[];
+        const evolutions = (await evoRes.json()) as EvolutionData;
+        if (!cancelled) setGroups(buildSearchGroups(stats, evolutions));
       })
       .catch(() => undefined);
     return () => {
@@ -38,7 +41,7 @@ export function PokemonSearchHost() {
       counts={counts}
       onClose={() => setOpen(false)}
       onSelect={(group) => {
-        recordPokemonPick(group.pokemonId);
+        recordPokemonPick(group.pokemonId, group.name);
         onSelectRef.current(group);
         setOpen(false);
       }}

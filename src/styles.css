@@ -1346,6 +1346,18 @@ select.input {
   line-height: 1.5;
 }
 
+.check-floor {
+  width: min(100%, 16rem);
+  margin-top: 0.85rem;
+}
+
+.check-floor-note {
+  margin: 0.35rem 0 0;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
 .check-scroll {
   width: min(100%, 62.5rem);
   margin-inline: auto;

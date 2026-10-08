@@ -1,5 +1,5 @@
 import { pokemonFormSpriteSuffix } from "./pokemonSprite";
-import { formatFormLabel, getPokemonDisplayName, type PogoStatRecord } from "./research";
+import { formatFormLabel, getPokemonDisplayName, type PogoStatRecord, type SpeciesGroup } from "./research";
 
 export type EvolutionChild = {
   pokemonId: number;
@@ -48,6 +48,22 @@ const COSTUME =
  */
 export function buildEvolutionLine(selected: PogoStatRecord, stats: PogoStatRecord[], data: EvolutionData) {
   const byKey = new Map(stats.map((record) => [`${record.pokemon_id}:${record.form}`, record]));
+  const pickedMega = findMegaSelection(selected, data);
+  if (pickedMega) {
+    const base = byKey.get(`${selected.pokemon_id}:${pickedMega.baseForm}`) ?? selected;
+    return [
+      {
+        key: `${selected.pokemon_id}:${pickedMega.baseForm}:${pickedMega.mega}`,
+        record: selected,
+        stage: 0,
+        label: memberLabel(base, pickedMega.mega),
+        spriteSuffix: pickedMega.spriteSuffix,
+        exactSprite: true,
+        megaBase: base,
+        sortMega: 1,
+      },
+    ];
+  }
   const seen = new Set<string>();
   const members: LineMember[] = [];
 
@@ -169,6 +185,81 @@ function megaLabel(mega: string) {
   if (mega === "MEGA_X") return "メガX";
   if (mega === "MEGA_Y") return "メガY";
   return mega;
+}
+
+/**
+ * 検索用。タイプ・わざ・攻撃・防御・HPが全部同じフォルムは代表1体。
+ * どれか一つでも違うフォルムと、中身の違うメガシンカは別の結果にする。
+ */
+export function buildSearchGroups(stats: PogoStatRecord[], data: EvolutionData): SpeciesGroup[] {
+  const buckets = new Map<string, PogoStatRecord[]>();
+  for (const record of stats) {
+    const signature = data.signature[`${record.pokemon_id}:${record.form}`] ?? statSignature(record);
+    const key = `${record.pokemon_id}:${signature}`;
+    const list = buckets.get(key) ?? [];
+    list.push(record);
+    buckets.set(key, list);
+  }
+
+  const seen = new Set<string>();
+  const groups: SpeciesGroup[] = [];
+  for (const [key, list] of buckets) {
+    seen.add(key);
+    const representative = pickRepresentative(list, null);
+    groups.push({
+      name: `${representative.pokemon_id}:${representative.form}`,
+      pokemonId: representative.pokemon_id,
+      entries: [representative],
+      label: memberLabel(representative, null),
+    });
+  }
+
+  for (const mega of data.megas) {
+    const key = `${mega.pokemonId}:${mega.signature}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const base =
+      stats.find((record) => record.pokemon_id === mega.pokemonId && record.form === mega.baseForm) ??
+      stats.find((record) => record.pokemon_id === mega.pokemonId);
+    if (!base) continue;
+    const record: PogoStatRecord = {
+      pokemon_id: mega.pokemonId,
+      pokemon_name: base.pokemon_name,
+      form: mega.mega,
+      base_attack: mega.attack,
+      base_defense: mega.defense,
+      base_stamina: mega.stamina,
+    };
+    groups.push({
+      name: `${mega.pokemonId}:${mega.baseForm}:${mega.mega}`,
+      pokemonId: mega.pokemonId,
+      entries: [record],
+      label: memberLabel(base, mega.mega),
+      exactSprite: true,
+      spriteSuffix: mega.spriteSuffix,
+    });
+  }
+
+  groups.sort((a, b) => a.pokemonId - b.pokemonId || (a.label ?? "").localeCompare(b.label ?? "", "ja"));
+  return groups;
+}
+
+function statSignature(record: PogoStatRecord) {
+  return `${record.base_attack}|${record.base_defense}|${record.base_stamina}`;
+}
+
+function findMegaSelection(selected: PogoStatRecord, data: EvolutionData) {
+  if (selected.form !== "MEGA" && selected.form !== "MEGA_X" && selected.form !== "MEGA_Y") return null;
+  return (
+    data.megas.find(
+      (mega) =>
+        mega.pokemonId === selected.pokemon_id &&
+        mega.mega === selected.form &&
+        mega.attack === selected.base_attack &&
+        mega.defense === selected.base_defense &&
+        mega.stamina === selected.base_stamina,
+    ) ?? null
+  );
 }
 
 function memberLabel(record: PogoStatRecord, mega: string | null) {

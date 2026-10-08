@@ -53,7 +53,7 @@ export function usePokemonPicks() {
   return useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 }
 
-export function recordPokemonPick(pokemonId: number) {
+export function recordPokemonPick(pokemonId: number, countKey?: string) {
   const id = Math.floor(pokemonId);
   if (!id) return;
 
@@ -61,7 +61,7 @@ export function recordPokemonPick(pokemonId: number) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
 
   const counts = readCounts();
-  const key = String(id);
+  const key = countKey && /^[\w:.-]+$/.test(countKey) ? countKey : String(id);
   counts[key] = (counts[key] ?? 0) + 1;
   localStorage.setItem(COUNT_KEY, JSON.stringify(counts));
   publish();
@@ -69,7 +69,7 @@ export function recordPokemonPick(pokemonId: number) {
   void fetch("/api/pokemon-picks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
+    body: JSON.stringify({ id: key }),
   })
     .then(async (response) => {
       if (!response.ok) return;

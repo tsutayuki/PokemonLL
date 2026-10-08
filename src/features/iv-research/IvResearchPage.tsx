@@ -12,6 +12,7 @@ import {
   formatPlace,
   formatScp,
   hasStrictUpgrade,
+  IV_FLOORS,
   pickPreferredEntry,
   placeTone,
   speciesDisplayName,
@@ -57,6 +58,7 @@ export function IvResearchPage() {
   const [defIv, setDefIv] = useState(15);
   const [staIv, setStaIv] = useState(15);
   const [buddy, setBuddy] = useState(false);
+  const [checkFloor, setCheckFloor] = useState<(typeof IV_FLOORS)[number]>(0);
   const [studyLeague, setStudyLeague] = useState<StudyLeagueId>("great");
   const [customCap, setCustomCap] = useState(1500);
   const { recent } = usePokemonPicks();
@@ -112,12 +114,12 @@ export function IvResearchPage() {
       for (const league of CHECK_LEAGUES) {
         map.set(
           `${member.key}:${league.cap}`,
-          computeBestRankings(member.record, levelScale.levels, levelScale.byLevel, league.cap, maxLevel),
+          computeBestRankings(member.record, levelScale.levels, levelScale.byLevel, league.cap, maxLevel, checkFloor),
         );
       }
     }
     return map;
-  }, [levelScale, maxLevel, members, tab]);
+  }, [checkFloor, levelScale, maxLevel, members, tab]);
 
   const studyRanks = useMemo(() => {
     if (!entry || !levelScale || tab !== "study") return [];
@@ -186,7 +188,14 @@ export function IvResearchPage() {
               </button>
               <button type="button" className="mon-pick-sprite" aria-label="ポケモン選択" onClick={() => openPokemonSearch(chooseGroup)}>
                 {selected ? (
-                  <PokemonDotSprite pokemonId={selected.pokemonId} form={entry?.form} alt="" size={64} />
+                  <PokemonDotSprite
+                    pokemonId={selected.pokemonId}
+                    form={selected.exactSprite ? undefined : entry?.form}
+                    exact={selected.exactSprite}
+                    spriteSuffix={selected.spriteSuffix}
+                    alt=""
+                    size={64}
+                  />
                 ) : (
                   <img className="pokemon-dot-sprite" src={pokemonDexPlaceholderPath()} alt="" width={64} height={64} />
                 )}
@@ -262,9 +271,12 @@ export function IvResearchPage() {
                           const row = ranks?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
                           const before = row ? previousCp(member, row, stats, evolutions, levelScale.byLevel) : null;
                           const dominated = row && ranks ? hasStrictUpgrade(row, ranks) : false;
+                          const belowFloor = atkIv < checkFloor || defIv < checkFloor || staIv < checkFloor;
                           return (
                             <div key={league.id} className="check-cell">
-                              {row ? (
+                              {belowFloor ? (
+                                <p className="check-fine">最低未満</p>
+                              ) : row ? (
                                 <>
                                   <p className={`check-rank place num ${placeTone(row.rank)}`}>{formatPlace(row.rank)}</p>
                                   <p className="check-mid num">
@@ -288,6 +300,21 @@ export function IvResearchPage() {
                     ))}
                   </div>
                   <p className="check-dominate-note">上位互換個体がいる場合はCPの横に「↓」が出ます</p>
+                  <label className="field check-floor">
+                    <span className="field-label">個体値最低</span>
+                    <select
+                      className="input"
+                      value={checkFloor}
+                      onChange={(event) => setCheckFloor(Number(event.target.value) as (typeof IV_FLOORS)[number])}
+                    >
+                      {IV_FLOORS.map((floor) => (
+                        <option key={floor} value={floor}>
+                          {floor}以上
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="check-floor-note">最低保証に基づいた順位を再計算します</p>
                 </div>
               ) : (
                 <p className="note">ポケモンを選ぶと、リーグごとの順位が出ます。</p>
