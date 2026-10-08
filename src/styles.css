@@ -1139,6 +1139,14 @@ select.input {
   gap: 1.35rem;
 }
 
+.iv-page .iv-title-row,
+.iv-page .mon-pick,
+.iv-page .iv-bars,
+.iv-page .iv-tabbar {
+  width: min(100%, 50rem);
+  margin-inline: auto;
+}
+
 .iv-title-row {
   display: flex;
   align-items: center;
@@ -1308,12 +1316,15 @@ select.input {
 }
 
 .check-scroll {
+  width: min(100%, 62.5rem);
+  margin-inline: auto;
   overflow-x: auto;
+  overscroll-behavior-y: auto;
 }
 
 .check-board {
   display: grid;
-  gap: 0.55rem 0.4rem;
+  gap: 0;
   min-width: 22rem;
 }
 
@@ -1323,6 +1334,8 @@ select.input {
   grid-template-columns: 3.6rem repeat(3, minmax(0, 1fr));
   gap: 0.35rem 0.4rem;
   align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(28, 45, 62, 0.12);
 }
 
 .check-league-head {
@@ -1347,8 +1360,10 @@ select.input {
 }
 
 .check-cell {
+  display: grid;
+  justify-items: center;
   min-width: 0;
-  text-align: left;
+  text-align: center;
 }
 
 .league-mark {
@@ -1414,6 +1429,7 @@ select.input {
 .check-mid {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.1rem 0.45rem;
   margin: 0.15rem 0 0;
   font-size: 0.92rem;
@@ -1422,13 +1438,11 @@ select.input {
 }
 
 .check-fine {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.05rem 0.4rem;
   margin: 0.08rem 0 0;
   color: var(--text-muted);
   font-size: 0.7rem;
   line-height: 1.3;
+  text-align: center;
 }
 
 .study-side.check-fine {
@@ -1472,12 +1486,14 @@ select.input {
 .study-summary {
   display: grid;
   grid-template-columns: minmax(4.2rem, 0.7fr) minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 0.35rem 0.85rem;
-  align-items: start;
-  padding: 0.85rem 1rem;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+  justify-items: center;
+  padding: 0.6rem 0.7rem;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface);
+  text-align: center;
 }
 
 .study-kicker {
@@ -1485,11 +1501,14 @@ select.input {
   color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 700;
+  text-align: center;
 }
 
 .study-side {
   display: grid;
+  justify-items: center;
   gap: 0.12rem;
+  text-align: center;
 }
 
 .study-side p {
@@ -1499,7 +1518,9 @@ select.input {
 .rank-board {
   display: grid;
   gap: 0.85rem;
+  width: min(100%, 36rem);
   min-width: 0;
+  margin-inline: auto;
 }
 
 .rank-filters {
@@ -1532,7 +1553,7 @@ select.input {
   column-gap: 0.4rem;
   min-height: 2.35rem;
   font-size: 0.82rem;
-  text-align: right;
+  text-align: center;
 }
 
 .rank-grid > :first-child {
@@ -1541,7 +1562,7 @@ select.input {
 }
 
 .rank-grid > :nth-child(2) {
-  text-align: left;
+  text-align: center;
 }
 
 .rank-head {
@@ -1566,7 +1587,7 @@ select.input {
   max-height: min(26rem, 58vh);
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   touch-action: pan-y;
   border-top: 1px solid var(--border-soft);
 }
@@ -1679,7 +1700,7 @@ select.input {
 
 @media (min-width: 900px) {
   .study-layout {
-    grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+    grid-template-columns: minmax(16rem, 1fr) minmax(0, 36rem);
     align-items: start;
   }
 

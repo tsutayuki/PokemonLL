@@ -269,10 +269,8 @@ export function IvResearchPage() {
                                     <span>CP {row.cp}</span>
                                     <span>SCP {formatScp(row.statProduct)}</span>
                                   </p>
-                                  <p className="check-fine num">
-                                    <span>Lv{row.level.toFixed(1)}</span>
-                                    <span>攻撃 {row.attack.toFixed(1)}</span>
-                                  </p>
+                                  <p className="check-fine num">攻撃 {row.attack.toFixed(1)}</p>
+                                  <p className="check-fine num">Lv{row.level.toFixed(1)}</p>
                                   {before !== null ? <p className="check-fine num">前CP {before}</p> : null}
                                 </>
                               ) : (
