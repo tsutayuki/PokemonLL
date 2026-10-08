@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RankingRow } from "../../lib/pogo/research";
+import { formatPlace, type RankingRow } from "../../lib/pogo/research";
 
 const FILTERS = [
   { label: "100位以内", limit: 100 },
@@ -28,7 +28,7 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLDivElement>(null);
-  const [pinBottom, setPinBottom] = useState(false);
+  const [pin, setPin] = useState<"top" | "bottom" | null>(null);
 
   const visible = useMemo(() => {
     const filtered = rows.filter((row) => limit === null || row.rank <= limit);
@@ -46,18 +46,27 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
     if (!scroller) return;
     const update = () => {
       const row = currentRef.current;
-      if (!row) {
-        setPinBottom(false);
+      if (!row || !currentInList) {
+        setPin(null);
         return;
       }
       const top = row.offsetTop;
-      const viewBottom = scroller.scrollTop + scroller.clientHeight;
-      setPinBottom(top >= viewBottom - 1);
+      const bottom = top + row.offsetHeight;
+      const viewTop = scroller.scrollTop;
+      const viewBottom = viewTop + scroller.clientHeight;
+      if (bottom <= viewTop + 1) setPin("top");
+      else if (top >= viewBottom - 1) setPin("bottom");
+      else setPin(null);
     };
     update();
     scroller.addEventListener("scroll", update, { passive: true });
-    return () => scroller.removeEventListener("scroll", update);
-  }, [visible, current]);
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [currentInList, visible, current]);
 
   const cycleSort = (key: SortKey) => {
     if (sortKey !== key || sortDir === null) {
@@ -89,8 +98,9 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
         ))}
       </div>
       {current && !currentInList ? (
-        <p className="rank-outside">この個体は #{current.rank} で、いまの絞り込みの外です。</p>
+        <p className="rank-outside">この個体は {formatPlace(current.rank)} で、いまの絞り込みの外です。</p>
       ) : null}
+      <p className="rank-sort-note">見出しをタップすると並べ替えられます</p>
       <div className="rank-grid rank-head" role="row">
         {COLUMNS.map((column) => {
           const active = sortDir && sortKey === column.key;
@@ -103,22 +113,24 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
           );
         })}
       </div>
-      <div className="rank-scroll" ref={scrollerRef}>
-        {visible.map((row) => {
-          const isCurrent =
-            current?.atkIv === row.atkIv && current.defIv === row.defIv && current.staIv === row.staIv;
-          return (
-            <div
-              key={`${row.atkIv}-${row.defIv}-${row.staIv}`}
-              ref={isCurrent ? currentRef : undefined}
-              className={`rank-grid rank-line${isCurrent ? " is-current" : ""}`}
-            >
-              <RankCells row={row} />
-            </div>
-          );
-        })}
-        {pinBottom && current ? (
-          <div className="rank-pin-bottom" aria-hidden="true">
+      <div className="rank-scroll-wrap">
+        <div className="rank-scroll" ref={scrollerRef}>
+          {visible.map((row) => {
+            const isCurrent =
+              current?.atkIv === row.atkIv && current.defIv === row.defIv && current.staIv === row.staIv;
+            return (
+              <div
+                key={`${row.atkIv}-${row.defIv}-${row.staIv}`}
+                ref={isCurrent ? currentRef : undefined}
+                className={`rank-grid rank-line${isCurrent ? " is-current" : ""}`}
+              >
+                <RankCells row={row} />
+              </div>
+            );
+          })}
+        </div>
+        {pin && current ? (
+          <div className={`rank-pin is-${pin}`} aria-hidden="true">
             <div className="rank-grid rank-line is-current">
               <RankCells row={current} />
             </div>
@@ -132,7 +144,7 @@ export function RankTable({ rows, current }: { rows: RankingRow[]; current: Rank
 function RankCells({ row }: { row: RankingRow }) {
   return (
     <>
-      <span>#{row.rank}</span>
+      <span>{formatPlace(row.rank)}</span>
       <span>
         {row.atkIv}/{row.defIv}/{row.staIv}
       </span>

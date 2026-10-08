@@ -7,10 +7,20 @@ type PokemonDotSpriteProps = {
   size?: number;
   className?: string;
   form?: string;
+  exact?: boolean;
+  spriteSuffix?: number | null;
 };
 
-export function PokemonDotSprite({ pokemonId, alt, size = 40, className, form }: PokemonDotSpriteProps) {
-  const candidates = pokemonSpriteCandidates(pokemonId, form);
+export function PokemonDotSprite({
+  pokemonId,
+  alt,
+  size = 40,
+  className,
+  form,
+  exact,
+  spriteSuffix,
+}: PokemonDotSpriteProps) {
+  const candidates = pokemonSpriteCandidates(pokemonId, form, { exact, suffix: spriteSuffix });
   const key = candidates.join("|");
   const intrinsic = pokemonDotSpriteSize();
   const [index, setIndex] = React.useState(0);

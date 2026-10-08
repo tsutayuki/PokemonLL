@@ -162,11 +162,47 @@ export function formatScp(statProduct: number) {
   return Math.floor(statProduct / 1000);
 }
 
+/** 相棒ボーナス。ゲームマスターのレベル51と、50→51の半レベル刻み。 */
+export const BUDDY_CPM: CpMultiplierRecord[] = [
+  { level: 50.5, multiplier: 0.84279999 },
+  { level: 51, multiplier: 0.84529999 },
+];
+
+export function withBuddyLevels(
+  map: { byLevel: Map<string, number>; levels: number[] },
+  buddy: boolean,
+) {
+  if (!buddy) return map;
+  const byLevel = new Map(map.byLevel);
+  const levels = [...map.levels];
+  for (const extra of BUDDY_CPM) {
+    const key = extra.level.toFixed(1);
+    if (byLevel.has(key)) continue;
+    byLevel.set(key, extra.multiplier);
+    levels.push(extra.level);
+  }
+  levels.sort(levelOrder);
+  return { byLevel, levels };
+}
+
+export function formatPlace(rank: number) {
+  return `${rank}位`;
+}
+
+/** 1位は金、2–9位は赤、10–99位はオレンジ。 */
+export function placeTone(rank: number) {
+  if (rank === 1) return "is-gold";
+  if (rank <= 9) return "is-hot";
+  if (rank <= 99) return "is-warm";
+  return "";
+}
+
 export function computeBestRankings(
   record: PogoStatRecord,
   levels: number[],
   byLevel: Map<string, number>,
   cap: number,
+  maxLevel = 50,
 ) {
   const rows: RankingRow[] = [];
 
@@ -176,11 +212,12 @@ export function computeBestRankings(
         let best: RankingRow | null = null;
 
         for (const level of levels) {
+          if (level > maxLevel + 1e-9) continue;
           const multiplier = byLevel.get(level.toFixed(1));
           if (multiplier === undefined) continue;
 
           const derived = computeDerivedStats(record, atkIv, defIv, staIv, multiplier);
-          if (derived.cp > cap) continue;
+          if (derived.cp > cap) break;
 
           if (
             best === null ||

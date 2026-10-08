@@ -1,5 +1,5 @@
 const DOT_SPRITE_SIZE = 64;
-const PLACEHOLDER = "/Image/placeholder.svg";
+const PLACEHOLDER = "/Image/sprite/Question_Mark.png";
 
 const COSTUME =
   /copy_|fall_|winter_|summer_|spring_|costume|tshirt|adventure|diwali|doctor|flying_|gofest|gotour|horizons|jeju|kariyushi|kurta|pop_star|rock_star|vs_|wcs_|swim_|20\d{2}/i;
@@ -136,8 +136,18 @@ export function pokemonFormSpriteSuffix(pokemonId: number, form?: string) {
   return null;
 }
 
-export function pokemonSpriteCandidates(pokemonId: number, form?: string) {
+export function pokemonSpriteCandidates(
+  pokemonId: number,
+  form?: string,
+  options?: { exact?: boolean; suffix?: number | null },
+) {
   const id = Math.max(1, Math.floor(pokemonId));
+  if (options?.exact) {
+    if (options.suffix != null && options.suffix > 0) {
+      return [`/Image/sprite/${id}-${options.suffix}.png`, PLACEHOLDER];
+    }
+    return [PLACEHOLDER];
+  }
   const suffix = pokemonFormSpriteSuffix(id, form);
   const paths: string[] = [];
   if (suffix) paths.push(`/Image/sprite/${id}-${suffix}.png`);

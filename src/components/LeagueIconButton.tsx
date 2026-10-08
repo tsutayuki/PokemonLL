@@ -14,7 +14,7 @@ export function LeagueIconButton({
   const src = leagueMarkSrc(id);
   return (
     <button type="button" className="league-choice" aria-pressed={pressed} aria-label={label} onClick={onClick}>
-      {src ? <img src={src} alt="" /> : <span className="league-custom">CP</span>}
+      {src ? <img src={src} alt="" /> : <span className="league-custom">カス<wbr />タム</span>}
     </button>
   );
 }
