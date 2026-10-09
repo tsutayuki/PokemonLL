@@ -1,27 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
-import { SpeciesPicker } from "../shared/SpeciesPicker";
-import { useResearchData } from "../shared/useResearchData";
+import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import type { PvpMove } from "../../lib/pogo/combat";
 import { findPvpPokemon, resolveMoves } from "../../lib/pogo/pvpBundle";
 import {
   computeBestRankings,
   findMaxLevelBuild,
-  formatFormLabel,
   leagueCap,
   leagueConfigs,
-  pickPreferredEntry,
   speciesDisplayName,
   type LeagueId,
   type PogoStatRecord,
   type SpeciesGroup,
 } from "../../lib/pogo/research";
 import { simulateBattle, simulateShieldGrid, type ChargeTiming, type FighterInput } from "../../lib/pogo/simulate";
+import { useResearchData } from "../shared/useResearchData";
+import { openPokemonSearch } from "../shared/pokemonSearchApi";
 
 type SideState = {
-  species: string;
-  form: string;
+  record: PogoStatRecord | null;
+  label: string;
+  exactSprite: boolean;
+  spriteSuffix: number | null;
   shadow: boolean;
   atkIv: number;
   defIv: number;
@@ -35,8 +36,10 @@ type SideState = {
 };
 
 const emptySide: SideState = {
-  species: "",
-  form: "",
+  record: null,
+  label: "",
+  exactSprite: false,
+  spriteSuffix: null,
   shadow: false,
   atkIv: 0,
   defIv: 15,
@@ -55,47 +58,14 @@ function clampIv(value: number) {
 }
 
 export function SimResearchPage() {
-  const { data, error, speciesGroups, cpData, reload } = useResearchData();
+  const { data, error, cpData, reload } = useResearchData();
   const [leagueId, setLeagueId] = useState<LeagueId>("great");
   const [sideA, setSideA] = useState<SideState>(emptySide);
   const [sideB, setSideB] = useState<SideState>({ ...emptySide, shields: 2 });
 
   const cap = leagueCap(leagueId);
-
-  function applySpecies(group: SpeciesGroup, which: "a" | "b") {
-    const entry = pickPreferredEntry(group);
-    const pvp = data ? findPvpPokemon(data.bundle, group.pokemonId, entry.form) : null;
-    const next: Partial<SideState> = {
-      species: group.name,
-      form: entry.form,
-      fastId: pvp?.fast[0] ?? "",
-      chargedId: pvp?.charged[0] ?? "",
-      chargedId2: pvp?.charged[1] ?? "",
-    };
-    if (cpData) {
-      const record = group.entries.find((item) => item.form === entry.form) ?? entry;
-      const best = computeBestRankings(record, cpData.levels, cpData.byLevel, cap)[0];
-      if (best) {
-        next.atkIv = best.atkIv;
-        next.defIv = best.defIv;
-        next.staIv = best.staIv;
-      }
-    }
-    if (which === "a") setSideA((current) => ({ ...current, ...next }));
-    else setSideB((current) => ({ ...current, ...next }));
-  }
-
-  useEffect(() => {
-    if (!speciesGroups.length) return;
-    if (!sideA.species) applySpecies(speciesGroups[0], "a");
-    if (!sideB.species) applySpecies(speciesGroups[Math.min(8, speciesGroups.length - 1)], "b");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speciesGroups]);
-
-  const pack = (side: SideState) => packFighter(side, speciesGroups, data, cpData, cap);
-
-  const fighterA = pack(sideA);
-  const fighterB = pack(sideB);
+  const fighterA = packFighter(sideA, data, cpData, cap);
+  const fighterB = packFighter(sideB, data, cpData, cap);
 
   const result = useMemo(() => {
     if (!fighterA || !fighterB) return null;
@@ -108,7 +78,7 @@ export function SimResearchPage() {
   }, [fighterA, fighterB]);
 
   return (
-    <div className="page-iv">
+    <div className="page-iv sim-page">
       <div className="page-heading">
         <a className="btn btn-secondary btn-back" href="#/">
           <ArrowLeft size={16} />
@@ -116,9 +86,7 @@ export function SimResearchPage() {
         </a>
         <div>
           <h1>バトルシミュレーション研究</h1>
-          <p className="page-lead">
-            2匹を入れてシールドとゲージ技のタイミングを変えると、対面の勝敗とタイムラインが出ます。9マスはシールド枚数ごとの結果です。
-          </p>
+          <p className="page-lead">2匹を横に並べたまま、シールドと技のタイミングを変えます。名前を押すと検索して入れ替えられます。</p>
         </div>
       </div>
 
@@ -138,7 +106,7 @@ export function SimResearchPage() {
         </section>
       ) : null}
 
-      {data ? (
+      {data && cpData ? (
         <>
           <div className="choice-row league-row" role="group" aria-label="リーグ">
             {leagueConfigs
@@ -155,34 +123,37 @@ export function SimResearchPage() {
           </div>
 
           <div className="duel-grid">
-            <FighterEditor
+            <FighterCard
               title="自分"
+              tone="self"
               side={sideA}
-              groups={speciesGroups}
               data={data}
-              onSpecies={(group) => applySpecies(group, "a")}
+              cap={cap}
+              levels={cpData.levels}
+              byLevel={cpData.byLevel}
               onChange={setSideA}
-              build={fighterA}
             />
-            <FighterEditor
+            <FighterCard
               title="相手"
+              tone="foe"
               side={sideB}
-              groups={speciesGroups}
               data={data}
-              onSpecies={(group) => applySpecies(group, "b")}
+              cap={cap}
+              levels={cpData.levels}
+              byLevel={cpData.byLevel}
               onChange={setSideB}
-              build={fighterB}
             />
           </div>
+          <p className="note">最適は相手の技に合わせます。追加効果を入れると、確率の変化も必ず起きます。</p>
 
           {result && fighterA && fighterB ? (
             <>
-              <section className="panel result-panel">
+              <section className="panel result-panel sim-result">
                 <h2 className="panel-title">この対面</h2>
                 <div className="hero-stats">
                   <div>
                     <span>結果</span>
-                    <strong className={result.winner === "a" ? "win-text" : result.winner === "b" ? "lose-text" : ""}>
+                    <strong className={`sim-outcome ${result.winner === "a" ? "win-text" : result.winner === "b" ? "lose-text" : ""}`}>
                       {result.winner === "a" ? "勝ち" : result.winner === "b" ? "負け" : "相打ち"}
                     </strong>
                   </div>
@@ -191,29 +162,19 @@ export function SimResearchPage() {
                     <strong className="hero-cp num">{result.rating}</strong>
                   </div>
                 </div>
-                <div className="hp-duel">
-                  <HpBar
-                    name={fighterA.name}
-                    hp={result.hpA}
-                    max={result.maxHpA}
-                    tone="self"
-                  />
-                  <HpBar
-                    name={fighterB.name}
-                    hp={result.hpB}
-                    max={result.maxHpB}
-                    tone="foe"
-                  />
+                <div className="sim-hp-row">
+                  <HpBar name={fighterA.name} hp={result.hpA} max={result.maxHpA} tone="self" />
+                  <HpBar name={fighterB.name} hp={result.hpB} max={result.maxHpB} tone="foe" />
                 </div>
                 <p className="note">
-                  {result.turns}ターン / シールド {sideA.shields}対{sideB.shields} / 100より大きいと勝ちです。
+                  {result.turns}ターン。評価が100より大きいと勝ちです。
                 </p>
               </section>
 
               {grid ? (
                 <section className="panel">
                   <h2 className="panel-title">シールド9マス</h2>
-                  <p className="note">マスを押すと、そのシールド枚数でタイムラインを見られます。自分の枚数が縦、相手が横です。</p>
+                  <p className="note">マスを押すと、その枚数の結果に切り替わります。自分の枚数が縦、相手が横です。</p>
                   <div className="shield-grid" role="grid" aria-label="シールド勝敗表">
                     <span className="shield-corner">自分＼相手</span>
                     {[0, 1, 2].map((shieldsB) => (
@@ -253,16 +214,18 @@ export function SimResearchPage() {
                 <div className="timeline">
                   {result.timeline.slice(0, 48).map((event, index) => (
                     <div key={`${event.turn}-${index}`} className={`timeline-row is-${event.actor}`}>
-                      <span className="num">T{event.turn}</span>
-                      <span>{event.actor === "a" ? fighterA.name : fighterB.name}</span>
-                      <span>
-                        {event.moveName}
-                        {event.shielded ? "（シールド）" : ""}
+                      <span className="num timeline-turn">T{event.turn}</span>
+                      <span className="timeline-main">
+                        <span className="timeline-who">{event.actor === "a" ? fighterA.name : fighterB.name}</span>
+                        <span>
+                          {event.moveName}
+                          {event.shielded ? "（シールド）" : ""}
+                        </span>
+                        <span className="timeline-hp num">
+                          {event.hpA}/{event.hpB}
+                        </span>
                       </span>
-                      <span className="num">{event.damage}</span>
-                      <span className="num">
-                        {event.hpA}/{event.hpB}
-                      </span>
+                      <span className="num timeline-dmg">{event.damage}</span>
                     </div>
                   ))}
                 </div>
@@ -270,7 +233,7 @@ export function SimResearchPage() {
             </>
           ) : (
             <section className="panel">
-              <p className="page-lead">両方のポケモンに通常技が入ると、シミュレーションが始まります。</p>
+              <p className="page-lead">両方のポケモンにノーマルアタックが入ると、シミュレーションが始まります。</p>
             </section>
           )}
         </>
@@ -281,27 +244,25 @@ export function SimResearchPage() {
 
 function packFighter(
   side: SideState,
-  groups: SpeciesGroup[],
   data: ReturnType<typeof useResearchData>["data"],
   cpData: ReturnType<typeof useResearchData>["cpData"],
   cap: number,
 ) {
-  if (!data || !cpData) return null;
-  const group = groups.find((item) => item.name === side.species);
-  if (!group) return null;
-  const entry = group.entries.find((item) => item.form === side.form) ?? group.entries[0];
-  if (!entry) return null;
-  const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, side.form);
+  if (!data || !cpData || !side.record) return null;
+  const entry = side.record;
+  const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, entry.form);
   if (!pvp) return null;
-  const fast = data.bundle.moves[side.fastId] ?? resolveMoves(data.bundle, pvp.fast)[0];
+  const fasts = resolveMoves(data.bundle, pvp.fast);
+  const chargedMoves = resolveMoves(data.bundle, pvp.charged);
+  const fast = fasts.find((move) => move.id === side.fastId) ?? fasts[0];
   if (!fast) return null;
   const charged = [side.chargedId, side.chargedId2]
-    .map((id) => (id ? data.bundle.moves[id] : null))
+    .map((id) => chargedMoves.find((move) => move.id === id) ?? null)
     .filter((move): move is PvpMove => Boolean(move));
   const build = findMaxLevelBuild(entry, side.atkIv, side.defIv, side.staIv, cpData.levels, cpData.byLevel, cap);
   if (!build) return null;
   const input: FighterInput = {
-    label: speciesDisplayName(group),
+    label: side.label || entry.pokemon_name,
     attack: build.attack,
     defense: build.defense,
     hp: build.stamina,
@@ -313,77 +274,106 @@ function packFighter(
     timing: side.timing,
     applyChanceBuffs: side.applyChanceBuffs,
   };
-  return {
-    name: speciesDisplayName(group),
-    entry,
-    pvp,
-    build,
-    fasts: resolveMoves(data.bundle, pvp.fast),
-    chargedMoves: resolveMoves(data.bundle, pvp.charged),
-    input,
-  };
+  return { name: side.label || entry.pokemon_name, pvp, build, fasts, chargedMoves, input };
 }
 
-function FighterEditor({
+function FighterCard({
   title,
+  tone,
   side,
-  groups,
   data,
-  onSpecies,
+  cap,
+  levels,
+  byLevel,
   onChange,
-  build,
 }: {
   title: string;
+  tone: "self" | "foe";
   side: SideState;
-  groups: SpeciesGroup[];
   data: NonNullable<ReturnType<typeof useResearchData>["data"]>;
-  onSpecies: (group: SpeciesGroup) => void;
+  cap: number;
+  levels: number[];
+  byLevel: Map<string, number>;
   onChange: (next: SideState | ((current: SideState) => SideState)) => void;
-  build: ReturnType<typeof packFighter>;
 }) {
-  const group = groups.find((item) => item.name === side.species) ?? null;
-  const entry: PogoStatRecord | null = group
-    ? (group.entries.find((item) => item.form === side.form) ?? group.entries[0] ?? null)
-    : null;
-  const pvp = entry ? findPvpPokemon(data.bundle, entry.pokemon_id, side.form) : null;
-  const fasts = pvp ? resolveMoves(data.bundle, pvp.fast) : [];
-  const charged = pvp ? resolveMoves(data.bundle, pvp.charged) : [];
+  const packed = packFighter(side, data, { levels, byLevel }, cap);
+  const fasts = packed?.fasts ?? [];
+  const chargedMoves = packed?.chargedMoves ?? [];
+  const fastValue = fasts.some((move) => move.id === side.fastId) ? side.fastId : (fasts[0]?.id ?? "");
+  const chargedValue = chargedMoves.some((move) => move.id === side.chargedId) ? side.chargedId : (chargedMoves[0]?.id ?? "");
+  const charged2Value = chargedMoves.some((move) => move.id === side.chargedId2) ? side.chargedId2 : "";
+  const stats = packed?.build;
 
   return (
-    <section className="panel">
-      <h2 className="panel-title">{title}</h2>
-      <p className="selected-name">{group ? speciesDisplayName(group) : "未選択"}</p>
-      <p className="note">
-        {build ? `Lv ${build.build.level.toFixed(1)} / CP ${build.build.cp} / HP ${build.build.stamina}` : "CP上限内の個体がありません"}
-      </p>
-      <SpeciesPicker groups={groups} selectedName={side.species} onSelect={onSpecies} compact />
-      {group && group.entries.length > 1 ? (
-        <div className="choice-row" role="group" aria-label="フォルム">
-          {group.entries.map((item) => (
-            <button
-              key={item.form}
-              type="button"
-              className="choice"
-              aria-pressed={item.form === side.form}
-              onClick={() => onChange({ ...side, form: item.form })}
-            >
-              {formatFormLabel(item.form)}
-            </button>
-          ))}
-        </div>
+    <section className={`sim-card is-${tone}`}>
+      <p className="sim-role">{title}</p>
+      <button
+        type="button"
+        className="identity-pick"
+        onClick={() => {
+          openPokemonSearch((group: SpeciesGroup) => {
+            const entry = group.entries[0];
+            if (!entry) return;
+            const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, entry.form);
+            const nextFasts = pvp ? resolveMoves(data.bundle, pvp.fast) : [];
+            const nextCharged = pvp ? resolveMoves(data.bundle, pvp.charged) : [];
+            const best = computeBestRankings(entry, levels, byLevel, cap)[0];
+            onChange((current) => ({
+              ...current,
+              record: entry,
+              label: speciesDisplayName(group),
+              exactSprite: Boolean(group.exactSprite),
+              spriteSuffix: group.spriteSuffix ?? null,
+              fastId: nextFasts[0]?.id ?? "",
+              chargedId: nextCharged[0]?.id ?? "",
+              chargedId2: nextCharged[1]?.id ?? "",
+              atkIv: best?.atkIv ?? current.atkIv,
+              defIv: best?.defIv ?? current.defIv,
+              staIv: best?.staIv ?? current.staIv,
+            }));
+          });
+        }}
+      >
+        {side.record ? (
+          <PokemonDotSprite
+            pokemonId={side.record.pokemon_id}
+            form={side.exactSprite ? undefined : side.record.form}
+            exact={side.exactSprite}
+            spriteSuffix={side.spriteSuffix}
+            alt=""
+            size={48}
+          />
+        ) : (
+          <img className="pokemon-dot-sprite" src="/Image/sprite/Question_Mark.png" alt="" width={48} height={48} />
+        )}
+        <span className="identity-pick-name">{side.record ? side.label : "検索"}</span>
+      </button>
+
+      {!side.record ? null : stats ? (
+        <p className="sim-cp-line">
+          <span>CP</span>
+          <strong className="sim-cp num">{stats.cp}</strong>
+          <span className="note">
+            Lv {stats.level.toFixed(1)} / HP {stats.stamina}
+          </span>
+        </p>
+      ) : side.record ? (
+        <p className="note">このリーグのCP上限に入るレベルがありません。</p>
       ) : null}
-      <label className="check-row">
-        <input type="checkbox" checked={side.shadow} onChange={(event) => onChange({ ...side, shadow: event.target.checked })} />
-        シャドウ
-      </label>
-      <div className="iv-controls">
-        <IvBox label="攻撃IV" value={side.atkIv} onChange={(atkIv) => onChange({ ...side, atkIv })} />
-        <IvBox label="防御IV" value={side.defIv} onChange={(defIv) => onChange({ ...side, defIv })} />
-        <IvBox label="HP IV" value={side.staIv} onChange={(staIv) => onChange({ ...side, staIv })} />
+
+      {side.record && !packed ? <p className="note">技データがありません。</p> : null}
+
+      {side.record ? (
+        <>
+      <div className="sim-ivs">
+        <IvBox label="攻撃" value={side.atkIv} onChange={(atkIv) => onChange({ ...side, atkIv })} />
+        <IvBox label="防御" value={side.defIv} onChange={(defIv) => onChange({ ...side, defIv })} />
+        <IvBox label="HP" value={side.staIv} onChange={(staIv) => onChange({ ...side, staIv })} />
       </div>
+
       <label className="field">
-        <span className="field-label">通常技</span>
-        <select className="input" value={side.fastId} onChange={(event) => onChange({ ...side, fastId: event.target.value })}>
+        <span className="field-label">ノーマルアタック</span>
+        <select className="input" value={fastValue} onChange={(event) => onChange({ ...side, fastId: event.target.value })}>
           {fasts.map((move) => (
             <option key={move.id} value={move.id}>
               {move.name}
@@ -392,9 +382,9 @@ function FighterEditor({
         </select>
       </label>
       <label className="field">
-        <span className="field-label">ゲージ技①</span>
-        <select className="input" value={side.chargedId} onChange={(event) => onChange({ ...side, chargedId: event.target.value })}>
-          {charged.map((move) => (
+        <span className="field-label">スペシャルアタック</span>
+        <select className="input" value={chargedValue} onChange={(event) => onChange({ ...side, chargedId: event.target.value })}>
+          {chargedMoves.map((move) => (
             <option key={move.id} value={move.id}>
               {move.name}
             </option>
@@ -402,45 +392,53 @@ function FighterEditor({
         </select>
       </label>
       <label className="field">
-        <span className="field-label">ゲージ技②</span>
-        <select className="input" value={side.chargedId2} onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}>
+        <span className="field-label">スペシャルアタック2</span>
+        <select className="input" value={charged2Value} onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}>
           <option value="">なし</option>
-          {charged.map((move) => (
+          {chargedMoves.map((move) => (
             <option key={move.id} value={move.id}>
               {move.name}
             </option>
           ))}
         </select>
       </label>
-      <div className="choice-row" role="group" aria-label="シールド">
-        {[0, 1, 2].map((count) => (
-          <button
-            key={count}
-            type="button"
-            className="choice"
-            aria-pressed={side.shields === count}
-            onClick={() => onChange({ ...side, shields: count })}
-          >
-            シールド{count}
-          </button>
-        ))}
-      </div>
-      <div className="choice-row" role="group" aria-label="ゲージ技タイミング">
-        <button type="button" className="choice" aria-pressed={side.timing === "asap"} onClick={() => onChange({ ...side, timing: "asap" })}>
-          最短
-        </button>
-        <button type="button" className="choice" aria-pressed={side.timing === "cct"} onClick={() => onChange({ ...side, timing: "cct" })}>
-          最適（CCT）
-        </button>
-      </div>
+      <label className="field">
+        <span className="field-label">シールド</span>
+        <select
+          className="input"
+          value={side.shields}
+          onChange={(event) => onChange({ ...side, shields: Number(event.target.value) })}
+        >
+          <option value={0}>0</option>
+          <option value={1}>1</option>
+          <option value={2}>2</option>
+        </select>
+      </label>
+      <label className="field">
+        <span className="field-label">タイミング</span>
+        <select
+          className="input"
+          value={side.timing}
+          onChange={(event) => onChange({ ...side, timing: event.target.value as ChargeTiming })}
+        >
+          <option value="asap">最短</option>
+          <option value="cct">最適</option>
+        </select>
+      </label>
+      <label className="check-row">
+        <input type="checkbox" checked={side.shadow} onChange={(event) => onChange({ ...side, shadow: event.target.checked })} />
+        <span>シャドウ</span>
+      </label>
       <label className="check-row">
         <input
           type="checkbox"
           checked={side.applyChanceBuffs}
           onChange={(event) => onChange({ ...side, applyChanceBuffs: event.target.checked })}
         />
-        確率の追加効果を発動する
+        <span>追加効果</span>
       </label>
+        </>
+      ) : null}
     </section>
   );
 }

@@ -254,6 +254,13 @@ button {
   margin: 0;
 }
 
+.footer-admin {
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--accent-dark);
@@ -965,12 +972,32 @@ select.input {
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 3.2rem minmax(0, 1fr) minmax(0, 1.3fr) 3rem 4.6rem;
+  grid-template-columns: 2.8rem minmax(0, 1fr) auto;
   gap: 8px;
+  align-items: center;
   padding: 0.45rem 0.55rem;
   border-radius: var(--radius);
   background: var(--surface);
   font-size: 0.8125rem;
+}
+
+.timeline-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.timeline-who {
+  font-weight: 700;
+}
+
+.timeline-hp {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+
+.timeline-dmg {
+  font-weight: 700;
 }
 
 .timeline-row.is-a { box-shadow: inset 3px 0 0 var(--accent); }
@@ -1070,9 +1097,13 @@ select.input {
   .research-grid,
   .iv-workspace,
   .stat-grid,
-  .iv-controls,
-  .duel-grid {
+  .iv-controls {
     grid-template-columns: 1fr;
+  }
+
+  .duel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
   }
 
   .iv-damage-grid {
@@ -1080,12 +1111,7 @@ select.input {
   }
 
   .timeline-row {
-    grid-template-columns: 2.8rem minmax(0, 1fr) 3rem;
-  }
-
-  .timeline-row span:nth-child(3),
-  .timeline-row span:nth-child(5) {
-    display: none;
+    grid-template-columns: 2.4rem minmax(0, 1fr) auto;
   }
 
   .picker-panel {
@@ -1936,6 +1962,303 @@ select.input {
     margin-top: max(1rem, calc((100dvh - min(80dvh, 40rem)) / 2));
     max-height: min(80dvh, 40rem);
     border-radius: 12px;
+  }
+}
+
+.footer-admin:hover {
+  color: var(--accent-dark);
+}
+
+.admin-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.admin-login {
+  max-width: 28rem;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--bad);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.folder {
+  display: grid;
+}
+
+.folder-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  padding-left: 0.65rem;
+}
+
+.folder-tab {
+  position: relative;
+  min-height: 2.75rem;
+  margin-bottom: -1px;
+  padding: 0.5rem 1.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem 0.7rem 0 0;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.folder-tab.is-active {
+  z-index: 1;
+  background: var(--surface);
+  border-bottom-color: var(--surface);
+  color: var(--accent-deep);
+}
+
+.folder-body {
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  padding: 1rem 0.9rem 1.1rem;
+}
+
+.folder-body [hidden] {
+  display: none;
+}
+
+.folder.is-pokemon .folder-body {
+  border-top-left-radius: 0;
+}
+
+.admin-editor {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.admin-save {
+  width: 100%;
+}
+
+.admin-stat-fields,
+.move-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.move-column {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.move-edit-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.move-edit-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 2.75rem;
+  padding: 0.2rem 0.35rem 0.2rem 0.75rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.move-edit-list li:first-child {
+  border-top: 0;
+}
+
+.move-remove {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--bad);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.move-add {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.identity-pick {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.identity-pick.is-text {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.identity-pick-name {
+  display: block;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.move-search-result {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.confirm-overlay {
+  z-index: 90;
+}
+
+.confirm-panel {
+  position: relative;
+  width: min(22rem, calc(100% - 2rem));
+  margin-top: min(30vh, 12rem);
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+  border-radius: 12px;
+  background: var(--surface);
+  justify-self: center;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.sim-card {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  min-width: 0;
+  padding: 0.75rem 0.65rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface-glass);
+  box-shadow: var(--shadow);
+}
+
+.sim-card.is-self {
+  border-top: 3px solid var(--accent);
+}
+
+.sim-card.is-foe {
+  border-top: 3px solid var(--bad);
+}
+
+.sim-role {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.sim-cp-line {
+  display: grid;
+  gap: 0.1rem;
+  margin: 0;
+}
+
+.sim-cp-line > span:first-child {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sim-cp {
+  color: var(--accent-deep);
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.sim-ivs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.sim-card .input {
+  min-height: 2.75rem;
+}
+
+.sim-card .identity-pick {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.sim-card .identity-pick-name {
+  font-size: 0.95rem;
+}
+
+.sim-card .check-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+}
+
+.sim-card .check-row span {
+  min-width: 0;
+}
+
+.sim-outcome {
+  font-size: clamp(1.7rem, 5vw, 2.4rem);
+  line-height: 1.1;
+}
+
+.sim-hp-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+@media (max-width: 640px) {
+  .move-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .sim-card {
+    padding: 0.55rem 0.4rem 0.7rem;
+    gap: 0.45rem;
+  }
+
+  .identity-pick {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 0.35rem;
+    padding: 0.3rem;
+  }
+
+  .sim-cp {
+    font-size: 1.35rem;
   }
 }
 

@@ -38,12 +38,23 @@ export function effectiveDefense(defense: number, shadow: boolean, stage = 0) {
   return defense * (shadow ? 1 / 1.2 : 1) * buffMultiplier(stage);
 }
 
+/**
+ * トレーナーバトルだけの係数。
+ * 天候となかよし度はレイド側なので掛けない。
+ * シールドで防いだダメージは、この式ではなくシミュレータ側で 1 にする。
+ */
+const TRAINER_BATTLE_MODIFIER = 1.3;
+
 export function pvpDamage(input: DamageInput) {
   const attack = effectiveAttack(input.attack, Boolean(input.shadowAttack), input.attackStage ?? 0);
   const defense = effectiveDefense(input.defense, Boolean(input.shadowDefense), input.defenseStage ?? 0);
   const stab = stabMultiplier(input.moveType, input.attackerTypes);
   const effectiveness = typeEffectiveness(input.moveType, input.defenderTypes);
-  return Math.floor(0.5 * input.power * (attack / Math.max(defense, 0.0001)) * stab * effectiveness) + 1;
+  return (
+    Math.floor(
+      0.5 * input.power * (attack / Math.max(defense, 0.0001)) * stab * effectiveness * TRAINER_BATTLE_MODIFIER,
+    ) + 1
+  );
 }
 
 export function damageForMove(

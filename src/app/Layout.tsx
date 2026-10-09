@@ -57,6 +57,13 @@ export function SiteLayout({ title, route = "/", children }: SiteLayoutProps) {
         {children}
       </main>
       <footer className="site-footer">
+        {route === "/" ? (
+          <p>
+            <a className="footer-admin" href="#/admin">
+              管理者ログイン
+            </a>
+          </p>
+        ) : null}
         <p>種族値は pogoapi.net、技データは PvP 公開データを元にしています。</p>
         <p>PokemonLL</p>
       </footer>

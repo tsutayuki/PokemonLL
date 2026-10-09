@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { applyMoveEdits, loadMoveEdits, subscribeMoveEdits } from "../../lib/pogo/moveEdits";
+import type { PvpBundle } from "../../lib/pogo/pvpBundle";
 import {
   buildCpMultiplierMap,
   groupSpecies,
   type CpMultiplierRecord,
   type PogoStatRecord,
 } from "../../lib/pogo/research";
-import type { PvpBundle } from "../../lib/pogo/pvpBundle";
 
 export type ResearchData = {
   stats: PogoStatRecord[];
@@ -17,6 +18,7 @@ export function useResearchData() {
   const [data, setData] = useState<ResearchData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [editVersion, setEditVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,11 +50,18 @@ export function useResearchData() {
     };
   }, [reloadKey]);
 
-  const speciesGroups = useMemo(() => (data ? groupSpecies(data.stats) : []), [data]);
-  const cpData = useMemo(() => (data ? buildCpMultiplierMap(data.multipliers) : null), [data]);
+  useEffect(() => subscribeMoveEdits(() => setEditVersion((value) => value + 1)), []);
+
+  const edited = useMemo(() => {
+    if (!data) return null;
+    return { ...data, bundle: applyMoveEdits(data.bundle, loadMoveEdits()) };
+  }, [data, editVersion]);
+
+  const speciesGroups = useMemo(() => (edited ? groupSpecies(edited.stats) : []), [edited]);
+  const cpData = useMemo(() => (edited ? buildCpMultiplierMap(edited.multipliers) : null), [edited]);
 
   return {
-    data,
+    data: edited,
     error,
     speciesGroups,
     cpData,
