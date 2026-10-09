@@ -32,7 +32,7 @@ export type SpeciesGroup = {
   spriteSuffix?: number | null;
 };
 
-export const IV_FLOORS = [0, 1, 2, 3, 5, 6, 10, 12] as const;
+export const IV_FLOORS = [0, 1, 2, 3, 4, 5, 6, 10, 12] as const;
 
 export type DerivedStats = {
   attack: number;
@@ -171,20 +171,30 @@ export function formatScp(statProduct: number) {
 
 const STAT_EPS = 1e-4;
 
+function dominates(current: RankingRow, other: RankingRow) {
+  if (other.atkIv === current.atkIv && other.defIv === current.defIv && other.staIv === current.staIv) return false;
+  const attackUp = other.attack > current.attack + STAT_EPS;
+  const defenseUp = other.defense > current.defense + STAT_EPS;
+  const staminaUp = other.stamina > current.stamina;
+  return (
+    other.attack >= current.attack - STAT_EPS &&
+    other.defense >= current.defense - STAT_EPS &&
+    other.stamina >= current.stamina &&
+    (attackUp || defenseUp || staminaUp)
+  );
+}
+
 /** 攻撃・防御・HPがすべて同じか上で、どれか一つは上の個体がいる。 */
 export function hasStrictUpgrade(current: RankingRow, rows: RankingRow[]) {
-  return rows.some((other) => {
-    if (other.atkIv === current.atkIv && other.defIv === current.defIv && other.staIv === current.staIv) return false;
-    const attackUp = other.attack > current.attack + STAT_EPS;
-    const defenseUp = other.defense > current.defense + STAT_EPS;
-    const staminaUp = other.stamina > current.stamina;
-    return (
-      other.attack >= current.attack - STAT_EPS &&
-      other.defense >= current.defense - STAT_EPS &&
-      other.stamina >= current.stamina &&
-      (attackUp || defenseUp || staminaUp)
-    );
-  });
+  return rows.some((other) => dominates(current, other));
+}
+
+/** 上位互換の個体値。順位の良いものから。 */
+export function strictUpgradeIvs(current: RankingRow, rows: RankingRow[]) {
+  return rows
+    .filter((other) => dominates(current, other))
+    .sort((a, b) => a.rank - b.rank || a.atkIv - b.atkIv || a.defIv - b.defIv || a.staIv - b.staIv)
+    .map((other) => `${other.atkIv}-${other.defIv}-${other.staIv}`);
 }
 
 /** 相棒ボーナス。ゲームマスターのレベル51と、50→51の半レベル刻み。 */

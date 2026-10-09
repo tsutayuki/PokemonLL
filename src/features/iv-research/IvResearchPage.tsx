@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LeagueIconButton, LeagueMark } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { buildEvolutionLine, buildSearchGroups, type EvolutionData, type LineMember } from "../../lib/pogo/evolutionLine";
@@ -11,8 +11,8 @@ import {
   formatFormLabel,
   formatPlace,
   formatScp,
-  hasStrictUpgrade,
   IV_FLOORS,
+  strictUpgradeIvs,
   pickPreferredEntry,
   placeTone,
   speciesDisplayName,
@@ -303,7 +303,7 @@ export function IvResearchPage() {
                           const ranks = checkRanks.get(`${member.key}:${league.cap}`);
                           const row = ranks?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
                           const before = row ? previousCp(member, row, stats, evolutions, levelScale.byLevel) : null;
-                          const dominated = row && ranks ? hasStrictUpgrade(row, ranks) : false;
+                          const upgrades = row && ranks ? strictUpgradeIvs(row, ranks) : [];
                           const belowFloor = atkIv < checkFloor || defIv < checkFloor || staIv < checkFloor;
                           return (
                             <div key={league.id} className="check-cell">
@@ -315,7 +315,12 @@ export function IvResearchPage() {
                                   <p className="check-mid num">
                                     <span>
                                       CP {row.cp}
-                                      {dominated ? <span className="cp-dominate"> ↓</span> : null}
+                                      {upgrades.length > 0 ? (
+                                        <>
+                                          {" "}
+                                          <DominateMark ivs={upgrades} />
+                                        </>
+                                      ) : null}
                                     </span>
                                     <span>SCP {formatScp(row.statProduct)}</span>
                                   </p>
@@ -332,7 +337,7 @@ export function IvResearchPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="check-dominate-note">上位互換個体がいる場合はCPの横に「↓」が出ます</p>
+                  <p className="check-dominate-note">上位互換個体がいる場合はCPの横に「↓」が出ます。矢印を押すと個体値が出ます</p>
                   <label className="field check-floor">
                     <span className="field-label">個体値最低</span>
                     <select
@@ -424,6 +429,94 @@ export function IvResearchPage() {
         </>
       ) : null}
     </div>
+  );
+}
+
+const dominateWatchers = new Set<(id: number) => void>();
+let dominateSeq = 0;
+
+function DominateMark({ ivs }: { ivs: string[] }) {
+  const [id] = useState(() => {
+    dominateSeq += 1;
+    return dominateSeq;
+  });
+  const [open, setOpen] = useState(false);
+  const [box, setBox] = useState<{ top: number; left: number; above: boolean } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const watch = (opened: number) => {
+      if (opened !== id) setOpen(false);
+    };
+    dominateWatchers.add(watch);
+    return () => {
+      dominateWatchers.delete(watch);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const half = 52;
+      const left = Math.min(window.innerWidth - 8 - half, Math.max(8 + half, rect.left + rect.width / 2));
+      const above = rect.bottom + 48 > window.innerHeight;
+      setBox({ top: above ? rect.top - 4 : rect.bottom + 4, left, above });
+    };
+    place();
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (buttonRef.current?.contains(target)) return;
+      if (document.getElementById(`dominate-pop-${id}`)?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointer);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [id, open]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="cp-dominate"
+        aria-expanded={open}
+        aria-label="上位互換の個体値"
+        onClick={() => {
+          setOpen((value) => {
+            const next = !value;
+            if (next) dominateWatchers.forEach((watch) => watch(id));
+            return next;
+          });
+        }}
+      >
+        ↓
+      </button>
+      {open && box ? (
+        <div
+          id={`dominate-pop-${id}`}
+          className="dominate-pop"
+          role="dialog"
+          aria-label="上位互換の個体値"
+          style={{ top: box.top, left: box.left, transform: box.above ? "translate(-50%, -100%)" : "translateX(-50%)" }}
+        >
+          <p>上位</p>
+          <ul>
+            {ivs.map((iv) => (
+              <li key={iv}>{iv}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 }
 
