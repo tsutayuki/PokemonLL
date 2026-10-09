@@ -9,8 +9,8 @@ type SiteLayoutProps = {
 const navItems = [
   { href: "#/", label: "ホーム", route: "/" },
   { href: "#/research/iv", label: "個体値", route: "/research/iv" },
-  { href: "#/research/break", label: "ブレイク", route: "/research/break" },
   { href: "#/research/sim", label: "シミュ", route: "/research/sim" },
+  { href: "#/research/break", label: "ブレイク", route: "/research/break" },
 ] as const;
 
 export function SiteLayout({ title, route = "/", children }: SiteLayoutProps) {

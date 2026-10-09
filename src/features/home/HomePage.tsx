@@ -19,19 +19,19 @@ const researchCards: ResearchCard[] = [
     ready: true,
   },
   {
-    title: "ダメージブレイク研究",
-    description: "技ごとのブレイクポイントを、ポケモンの実数値ごとに計算します。",
-    icon: Crosshair,
-    metrics: ["通常技", "ゲージ技", "ブレイク"],
-    href: "#/research/break",
-    ready: true,
-  },
-  {
     title: "バトルシミュレーション研究",
     description: "シールド枚数とゲージ技のタイミングを変えて、対面の展開を検証します。",
     icon: Swords,
     metrics: ["対面", "シールド", "シミュレーション"],
     href: "#/research/sim",
+    ready: true,
+  },
+  {
+    title: "ダメージブレイク研究",
+    description: "技ごとのブレイクポイントを、ポケモンの実数値ごとに計算します。",
+    icon: Crosshair,
+    metrics: ["通常技", "ゲージ技", "ブレイク"],
+    href: "#/research/break",
     ready: true,
   },
   {

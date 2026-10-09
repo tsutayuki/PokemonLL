@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "generate:pokemon-names": "node scripts/generate-pokemon-name-map.mjs",
     "generate:pvp-data": "node scripts/generate-pvp-data.mjs",
+    "generate:sheet-catalog": "node scripts/generate-sheet-catalog.mjs",
     "generate:evolutions": "node --experimental-strip-types scripts/generate-evolution-line.mjs"
   },
   "dependencies": {
