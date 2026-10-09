@@ -22,8 +22,10 @@ export type TimelineEvent = {
   actor: FighterId;
   kind: "fast" | "charged";
   moveName: string;
+  moveType: string;
   damage: number;
   shielded: boolean;
+  actionId: number;
   hpA: number;
   hpB: number;
   energyA: number;
@@ -46,6 +48,8 @@ type Action = {
   move: PvpMove;
   turnsLeft: number;
   totalTurns: number;
+  id: number;
+  startTurn: number;
 };
 
 type FighterState = FighterInput & {
@@ -261,6 +265,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
   const maxHpA = inputA.hp;
   const maxHpB = inputB.hp;
   const timeline: TimelineEvent[] = [];
+  let nextActionId = 1;
 
   for (let turn = 1; turn <= 480; turn += 1) {
     for (const [self, other] of [
@@ -271,16 +276,25 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       const charged = pickCharged(self, other);
       if (charged && shouldThrow(self, other, charged)) {
         self.energy -= charged.energy;
-        self.action = { kind: "charged", move: charged, turnsLeft: 1, totalTurns: 1 };
+        self.action = { kind: "charged", move: charged, turnsLeft: 1, totalTurns: 1, id: nextActionId++, startTurn: turn };
       } else {
+        const turns = Math.max(1, self.fast.turns);
         self.action = {
           kind: "fast",
           move: self.fast,
-          turnsLeft: Math.max(1, self.fast.turns),
-          totalTurns: Math.max(1, self.fast.turns),
+          turnsLeft: turns,
+          totalTurns: turns,
+          id: nextActionId++,
+          startTurn: turn,
         };
       }
     }
+
+    const occupied = [a, b].map((fighter) => ({ fighter, action: fighter.action }));
+    const dealt: Record<FighterId, { damage: number; shielded: boolean }> = {
+      a: { damage: 0, shielded: false },
+      b: { damage: 0, shielded: false },
+    };
 
     const finishing = [a, b].filter((fighter) => {
       if (!fighter.action) return false;
@@ -313,17 +327,25 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         applyBuffs(self, other, action.move, self.applyChanceBuffs);
       }
 
-      timeline.push({
-        turn,
-        actor: self.id,
-        kind: action.kind,
-        moveName: action.move.name,
-        damage,
-        shielded,
-        ...snapshot(a, b),
-      });
+      dealt[self.id] = { damage, shielded };
       self.action = null;
       if (a.hp <= 0 || b.hp <= 0) break;
+    }
+
+    const snap = snapshot(a, b);
+    for (const { fighter, action } of occupied) {
+      if (!action) continue;
+      timeline.push({
+        turn,
+        actor: fighter.id,
+        kind: action.kind,
+        moveName: action.move.name,
+        moveType: action.move.type,
+        damage: dealt[fighter.id].damage,
+        shielded: dealt[fighter.id].shielded,
+        actionId: action.id,
+        ...snap,
+      });
     }
 
     if (a.hp <= 0 || b.hp <= 0) {

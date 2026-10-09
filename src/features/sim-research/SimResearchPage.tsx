@@ -48,7 +48,7 @@ const emptySide: SideState = {
   fastId: "",
   chargedId: "",
   chargedId2: "",
-  shields: 2,
+  shields: 0,
   timing: "cct",
   applyChanceBuffs: false,
 };
@@ -62,7 +62,7 @@ export function SimResearchPage() {
   const { data, error, cpData, reload } = useResearchData();
   const [leagueId, setLeagueId] = useState<LeagueId>("great");
   const [sideA, setSideA] = useState<SideState>(emptySide);
-  const [sideB, setSideB] = useState<SideState>({ ...emptySide, shields: 2 });
+  const [sideB, setSideB] = useState<SideState>(emptySide);
 
   const cap = leagueCap(leagueId);
   const fighterA = packFighter(sideA, data, cpData, cap);
@@ -210,16 +210,8 @@ export function SimResearchPage() {
                 </section>
               ) : null}
 
-              <section className="panel">
-                <div className="battle-log" aria-label="行動">
-                  {pairTimeline(result.timeline).slice(0, 80).map((row, index) => (
-                    <div key={`${row.turn}-${index}`} className="battle-log-row">
-                      <BattleLogSide event={row.a} align="start" />
-                      <span className="battle-log-turn num">{row.turn}</span>
-                      <BattleLogSide event={row.b} align="end" />
-                    </div>
-                  ))}
-                </div>
+              <section className="panel battle-sheet-panel">
+                <BattleSheet events={result.timeline} />
               </section>
             </>
           ) : (
@@ -446,33 +438,111 @@ function FighterCard({
   );
 }
 
-function pairTimeline(events: TimelineEvent[]) {
-  const rows: { turn: number; a: TimelineEvent | null; b: TimelineEvent | null }[] = [];
+type SheetCell = {
+  show: boolean;
+  span: number;
+  name: string;
+  type: string;
+  damage: number;
+  shielded: boolean;
+};
+
+function buildSheet(events: TimelineEvent[]) {
+  const turns: { turn: number; hpA: number; hpB: number; a: TimelineEvent | null; b: TimelineEvent | null }[] = [];
   for (const event of events) {
-    const last = rows[rows.length - 1];
-    if (last && last.turn === event.turn && last[event.actor] === null) {
-      last[event.actor] = event;
-      continue;
+    let row = turns[turns.length - 1];
+    if (!row || row.turn !== event.turn) {
+      row = { turn: event.turn, hpA: event.hpA, hpB: event.hpB, a: null, b: null };
+      turns.push(row);
     }
-    rows.push({
-      turn: event.turn,
-      a: event.actor === "a" ? event : null,
-      b: event.actor === "b" ? event : null,
-    });
+    row.hpA = event.hpA;
+    row.hpB = event.hpB;
+    row[event.actor] = event;
   }
-  return rows;
+
+  const summary = (actor: "a" | "b") => {
+    const map = new Map<number, { damage: number; shielded: boolean; count: number }>();
+    for (const row of turns) {
+      const event = row[actor];
+      if (!event) continue;
+      const prev = map.get(event.actionId);
+      map.set(event.actionId, {
+        damage: event.damage || prev?.damage || 0,
+        shielded: event.shielded || Boolean(prev?.shielded),
+        count: (prev?.count ?? 0) + 1,
+      });
+    }
+    return map;
+  };
+  const landA = summary("a");
+  const landB = summary("b");
+  const seen = { a: -1, b: -1 };
+
+  return turns.map((row) => ({
+    turn: row.turn,
+    hpA: row.hpA,
+    hpB: row.hpB,
+    a: sheetCell(row.a, landA, seen, "a"),
+    b: sheetCell(row.b, landB, seen, "b"),
+  }));
 }
 
-function BattleLogSide({ event, align }: { event: TimelineEvent | null; align: "start" | "end" }) {
-  if (!event) return <span className={`battle-log-side is-${align}`} />;
-  const name = `${event.moveName}${event.shielded ? "（シールド）" : ""}`;
-  const damage = <span className="num battle-log-dmg">{event.damage}</span>;
+function sheetCell(
+  event: TimelineEvent | null,
+  summary: Map<number, { damage: number; shielded: boolean; count: number }>,
+  seen: { a: number; b: number },
+  actor: "a" | "b",
+): SheetCell | null {
+  if (!event) return null;
+  const info = summary.get(event.actionId);
+  const show = seen[actor] !== event.actionId;
+  seen[actor] = event.actionId;
+  return {
+    show,
+    span: info?.count ?? 1,
+    name: event.moveName,
+    type: event.moveType,
+    damage: info?.damage ?? 0,
+    shielded: info?.shielded ?? false,
+  };
+}
+
+function BattleSheet({ events }: { events: TimelineEvent[] }) {
+  const rows = buildSheet(events);
   return (
-    <span className={`battle-log-side is-${align}`}>
-      {align === "end" ? damage : null}
-      <span>{name}</span>
-      {align === "start" ? damage : null}
-    </span>
+    <table className="battle-sheet" aria-label="行動">
+      <colgroup>
+        <col className="col-hp" />
+        <col className="col-move" />
+        <col className="col-turn" />
+        <col className="col-move" />
+        <col className="col-hp" />
+      </colgroup>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.turn}>
+            <td className="hp num">{row.hpA}</td>
+            <MoveCell cell={row.a} />
+            <td className="turn num">{row.turn}</td>
+            <MoveCell cell={row.b} />
+            <td className="hp num">{row.hpB}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function MoveCell({ cell }: { cell: SheetCell | null }) {
+  if (!cell) return <td className="move is-empty" />;
+  if (!cell.show) return null;
+  return (
+    <td className="move" rowSpan={cell.span} style={{ background: typePastel(cell.type) }}>
+      <span className="move-label">
+        <span>{cell.name}</span>
+        {cell.damage > 0 ? <span className="num move-dmg">{cell.shielded ? `${cell.damage}防` : cell.damage}</span> : null}
+      </span>
+    </td>
   );
 }
 
