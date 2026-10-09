@@ -2240,12 +2240,13 @@ select.input {
   position: absolute;
   inset: -18%;
   z-index: 0;
-  background:
-    radial-gradient(circle at 18% 22%, var(--type-main) 0%, transparent 56%),
-    radial-gradient(circle at 84% 78%, var(--type-accent) 0%, transparent 52%),
-    linear-gradient(165deg, color-mix(in srgb, var(--type-main) 46%, white), color-mix(in srgb, var(--type-accent) 28%, white));
-  background-size: 180% 180%;
-  animation: type-wash 16s ease-in-out infinite alternate;
+  background-image:
+    radial-gradient(circle at 20% 45%, var(--type-main) 0%, transparent 42%),
+    radial-gradient(circle at 80% 55%, var(--type-accent) 0%, transparent 40%),
+    linear-gradient(90deg, color-mix(in srgb, var(--type-main) 62%, white), color-mix(in srgb, var(--type-accent) 48%, white));
+  background-repeat: no-repeat;
+  background-size: 170% 150%, 170% 150%, 220% 100%;
+  animation: type-wash 6.5s ease-in-out infinite alternate;
 }
 
 .sim-card.has-type > * {
@@ -2254,8 +2255,8 @@ select.input {
 }
 
 @keyframes type-wash {
-  from { background-position: 0% 0%; transform: translate3d(0, 0, 0) scale(1); }
-  to { background-position: 18% 12%; transform: translate3d(2%, -2%, 0) scale(1.05); }
+  from { background-position: -15% 42%, 115% 58%, 0% 50%; }
+  to { background-position: 85% 48%, -5% 52%, 100% 50%; }
 }
 
 .sim-card .identity-pick-name {

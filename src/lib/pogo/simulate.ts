@@ -173,7 +173,89 @@ function createFighter(id: FighterId, input: FighterInput): FighterState {
   };
 }
 
+type MoveCell = {
+  moveA: PvpMove | null;
+  moveB: PvpMove | null;
+  result: SimResult;
+};
+
+/**
+ * 両方にスペシャルアタックが2つあるときは、勝つ側は倒すのが一番早い技、
+ * 負ける側は負けるまでに相手のHPを一番削る技を、組み合わせの中から一度だけ選ぶ。
+ * 選び直して勝敗が入れ替わるループには入らない。選んだ結果が引き分けなら引き分けのまま返す。
+ */
 export function simulateBattle(inputA: FighterInput, inputB: FighterInput): SimResult {
+  if (inputA.charged.length <= 1 && inputB.charged.length <= 1) {
+    return simulateLocked(inputA, inputB);
+  }
+
+  const optionsA = inputA.charged.length ? inputA.charged : [null];
+  const optionsB = inputB.charged.length ? inputB.charged : [null];
+  const cells: MoveCell[] = [];
+  for (const moveA of optionsA) {
+    for (const moveB of optionsB) {
+      cells.push({
+        moveA,
+        moveB,
+        result: simulateLocked(
+          { ...inputA, charged: moveA ? [moveA] : [] },
+          { ...inputB, charged: moveB ? [moveB] : [] },
+        ),
+      });
+    }
+  }
+  return pickChargedCell(cells).result;
+}
+
+function pickChargedCell(cells: MoveCell[]) {
+  const winsA = cells.filter((cell) => cell.result.winner === "a");
+  const winsB = cells.filter((cell) => cell.result.winner === "b");
+  const draws = cells.filter((cell) => cell.result.winner === "draw");
+  if (!winsA.length && !winsB.length) return draws[0] ?? cells[0];
+
+  let winnerId: FighterId;
+  if (winsA.length && !winsB.length) winnerId = "a";
+  else if (winsB.length && !winsA.length) winnerId = "b";
+  else {
+    const bestA = Math.min(...winsA.map((cell) => cell.result.turns));
+    const bestB = Math.min(...winsB.map((cell) => cell.result.turns));
+    if (bestA === bestB) return closestCell(draws.length ? draws : cells);
+    winnerId = bestA < bestB ? "a" : "b";
+  }
+
+  const winCells = winnerId === "a" ? winsA : winsB;
+  const fastest = Math.min(...winCells.map((cell) => cell.result.turns));
+  const fastestCells = winCells.filter((cell) => cell.result.turns === fastest);
+  const winCell = fastestCells.reduce((best, cell) => (winnerHp(cell, winnerId) > winnerHp(best, winnerId) ? cell : best));
+  const winMove = winnerId === "a" ? winCell.moveA : winCell.moveB;
+  const against = cells.filter((cell) => (winnerId === "a" ? cell.moveA === winMove : cell.moveB === winMove));
+  const losses = against.filter((cell) => cell.result.winner === winnerId);
+  const pool = losses.length ? losses : against;
+  return pool.reduce((best, cell) => {
+    const dealt = damageByLoser(cell, winnerId);
+    const bestDealt = damageByLoser(best, winnerId);
+    if (dealt !== bestDealt) return dealt > bestDealt ? cell : best;
+    return cell.result.turns > best.result.turns ? cell : best;
+  });
+}
+
+function winnerHp(cell: MoveCell, winnerId: FighterId) {
+  return winnerId === "a" ? cell.result.hpA : cell.result.hpB;
+}
+
+function damageByLoser(cell: MoveCell, winnerId: FighterId) {
+  return winnerId === "a" ? cell.result.maxHpA - cell.result.hpA : cell.result.maxHpB - cell.result.hpB;
+}
+
+function closestCell(cells: MoveCell[]) {
+  return cells.reduce((best, cell) => {
+    const gap = Math.abs(cell.result.hpA - cell.result.hpB);
+    const bestGap = Math.abs(best.result.hpA - best.result.hpB);
+    return gap < bestGap ? cell : best;
+  });
+}
+
+function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
   const a = createFighter("a", inputA);
   const b = createFighter("b", inputB);
   const maxHpA = inputA.hp;

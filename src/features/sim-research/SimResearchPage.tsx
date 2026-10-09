@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import type { PvpMove } from "../../lib/pogo/combat";
+import { bestMoves } from "../../lib/pogo/moveScore";
 import { findPvpPokemon, resolveMoves } from "../../lib/pogo/pvpBundle";
 import {
   computeBestRankings,
@@ -314,6 +315,9 @@ function FighterCard({
             const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, entry.form);
             const nextFasts = pvp ? resolveMoves(data.bundle, pvp.fast) : [];
             const nextCharged = pvp ? resolveMoves(data.bundle, pvp.charged) : [];
+            const types = pvp?.types ?? [];
+            const rankedFast = bestMoves(nextFasts, types, "fast");
+            const rankedCharged = bestMoves(nextCharged, types, "charged");
             const best = computeBestRankings(entry, levels, byLevel, cap)[0];
             onChange((current) => ({
               ...current,
@@ -321,9 +325,9 @@ function FighterCard({
               label: speciesDisplayName(group),
               exactSprite: Boolean(group.exactSprite),
               spriteSuffix: group.spriteSuffix ?? null,
-              fastId: nextFasts[0]?.id ?? "",
-              chargedId: nextCharged[0]?.id ?? "",
-              chargedId2: nextCharged[1]?.id ?? "",
+              fastId: rankedFast[0]?.id ?? "",
+              chargedId: rankedCharged[0]?.id ?? "",
+              chargedId2: rankedCharged[1]?.id ?? "",
               atkIv: best?.atkIv ?? current.atkIv,
               defIv: best?.defIv ?? current.defIv,
               staIv: best?.staIv ?? current.staIv,
