@@ -302,6 +302,16 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       return fighter.action.turnsLeft <= 0;
     });
 
+    const chargedThisTurn = finishing.some((fighter) => fighter.action?.kind === "charged");
+    if (chargedThisTurn) {
+      for (const fighter of [a, b]) {
+        if (fighter.action?.kind === "fast" && fighter.action.turnsLeft > 0) {
+          fighter.action.turnsLeft = 0;
+          finishing.push(fighter);
+        }
+      }
+    }
+
     const ordered = finishing.length === 2 ? resolveOrder(finishing[0], finishing[1]) : finishing;
 
     for (const self of ordered) {

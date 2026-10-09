@@ -451,6 +451,7 @@ type SheetCell = {
   type: string;
   damage: number;
   shielded: boolean;
+  endsCharge: boolean;
 };
 
 type TurnRow = { turn: number; hpA: number; hpB: number; a: TimelineEvent | null; b: TimelineEvent | null };
@@ -504,6 +505,7 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<numbe
 
     const slice = turns.slice(index, end);
     const landing = [...slice].reverse().find((row) => (row[actor]?.damage ?? 0) > 0)?.[actor];
+    const endsCharge = chargeTurns.has(turns[end - 1].turn);
     cells.set(turns[index].turn, {
       show: true,
       span: end - index,
@@ -511,9 +513,18 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<numbe
       type: event.moveType,
       damage: landing?.damage ?? 0,
       shielded: landing?.shielded ?? false,
+      endsCharge,
     });
     for (let cursor = index + 1; cursor < end; cursor += 1) {
-      cells.set(turns[cursor].turn, { show: false, span: 0, name: "", type: "", damage: 0, shielded: false });
+      cells.set(turns[cursor].turn, {
+        show: false,
+        span: 0,
+        name: "",
+        type: "",
+        damage: 0,
+        shielded: false,
+        endsCharge: false,
+      });
     }
     index = end;
   }
@@ -550,7 +561,7 @@ function MoveCell({ cell }: { cell: SheetCell | null }) {
   if (!cell) return <td className="move is-empty" />;
   if (!cell.show) return null;
   return (
-    <td className="move" rowSpan={cell.span} style={{ background: typeWash(cell.type) }}>
+    <td className={`move${cell.endsCharge ? " ends-charge" : ""}`} rowSpan={cell.span} style={{ background: typeWash(cell.type) }}>
       <span className="move-label">
         <span>{cell.name}</span>
         {cell.damage > 0 ? <span className="num move-dmg">{cell.shielded ? `${cell.damage}防` : cell.damage}</span> : null}
@@ -585,7 +596,7 @@ function typePastel(type: string) {
 }
 
 function typeWash(type: string) {
-  return `color-mix(in srgb, ${typePastel(type)} 50%, white)`;
+  return `color-mix(in srgb, ${typePastel(type)} 41%, white)`;
 }
 
 function HpBar({ name, hp, max, tone }: { name: string; hp: number; max: number; tone: "self" | "foe" }) {
