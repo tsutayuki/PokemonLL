@@ -109,6 +109,12 @@ export function SimResearchPage() {
 
       {data && cpData ? (
         <>
+          <svg className="type-wash-defs" aria-hidden="true" focusable="false">
+            <filter id="type-wash" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
+              <feTurbulence type="fractalNoise" baseFrequency="0.012 0.05" numOctaves="2" seed="4" result="noise" />
+              <feDisplacementMap in="SourceGraphic" in2="noise" scale="56" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+          </svg>
           <div className="choice-row league-row" role="group" aria-label="リーグ">
             {leagueConfigs
               .filter((league) => league.id !== "custom")
@@ -447,8 +453,10 @@ type SheetCell = {
   shielded: boolean;
 };
 
+type TurnRow = { turn: number; hpA: number; hpB: number; a: TimelineEvent | null; b: TimelineEvent | null };
+
 function buildSheet(events: TimelineEvent[]) {
-  const turns: { turn: number; hpA: number; hpB: number; a: TimelineEvent | null; b: TimelineEvent | null }[] = [];
+  const turns: TurnRow[] = [];
   for (const event of events) {
     let row = turns[turns.length - 1];
     if (!row || row.turn !== event.turn) {
@@ -460,51 +468,56 @@ function buildSheet(events: TimelineEvent[]) {
     row[event.actor] = event;
   }
 
-  const summary = (actor: "a" | "b") => {
-    const map = new Map<number, { damage: number; shielded: boolean; count: number }>();
-    for (const row of turns) {
-      const event = row[actor];
-      if (!event) continue;
-      const prev = map.get(event.actionId);
-      map.set(event.actionId, {
-        damage: event.damage || prev?.damage || 0,
-        shielded: event.shielded || Boolean(prev?.shielded),
-        count: (prev?.count ?? 0) + 1,
-      });
-    }
-    return map;
-  };
-  const landA = summary("a");
-  const landB = summary("b");
-  const seen = { a: -1, b: -1 };
+  const chargeTurns = new Set(
+    turns.filter((row) => row.a?.kind === "charged" || row.b?.kind === "charged").map((row) => row.turn),
+  );
+  const cellsA = moveSegments(turns, "a", chargeTurns);
+  const cellsB = moveSegments(turns, "b", chargeTurns);
 
   return turns.map((row) => ({
     turn: row.turn,
     hpA: row.hpA,
     hpB: row.hpB,
-    a: sheetCell(row.a, landA, seen, "a"),
-    b: sheetCell(row.b, landB, seen, "b"),
+    charge: chargeTurns.has(row.turn),
+    a: cellsA.get(row.turn) ?? null,
+    b: cellsB.get(row.turn) ?? null,
   }));
 }
 
-function sheetCell(
-  event: TimelineEvent | null,
-  summary: Map<number, { damage: number; shielded: boolean; count: number }>,
-  seen: { a: number; b: number },
-  actor: "a" | "b",
-): SheetCell | null {
-  if (!event) return null;
-  const info = summary.get(event.actionId);
-  const show = seen[actor] !== event.actionId;
-  seen[actor] = event.actionId;
-  return {
-    show,
-    span: info?.count ?? 1,
-    name: event.moveName,
-    type: event.moveType,
-    damage: info?.damage ?? 0,
-    shielded: info?.shielded ?? false,
-  };
+function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<number>) {
+  const cells = new Map<number, SheetCell | null>();
+  let index = 0;
+  while (index < turns.length) {
+    const event = turns[index][actor];
+    if (!event) {
+      cells.set(turns[index].turn, null);
+      index += 1;
+      continue;
+    }
+
+    let end = index;
+    while (end < turns.length && turns[end][actor]?.actionId === event.actionId) {
+      const splitAfter = chargeTurns.has(turns[end].turn);
+      end += 1;
+      if (splitAfter) break;
+    }
+
+    const slice = turns.slice(index, end);
+    const landing = [...slice].reverse().find((row) => (row[actor]?.damage ?? 0) > 0)?.[actor];
+    cells.set(turns[index].turn, {
+      show: true,
+      span: end - index,
+      name: event.moveName,
+      type: event.moveType,
+      damage: landing?.damage ?? 0,
+      shielded: landing?.shielded ?? false,
+    });
+    for (let cursor = index + 1; cursor < end; cursor += 1) {
+      cells.set(turns[cursor].turn, { show: false, span: 0, name: "", type: "", damage: 0, shielded: false });
+    }
+    index = end;
+  }
+  return cells;
 }
 
 function BattleSheet({ events }: { events: TimelineEvent[] }) {
@@ -520,7 +533,7 @@ function BattleSheet({ events }: { events: TimelineEvent[] }) {
       </colgroup>
       <tbody>
         {rows.map((row) => (
-          <tr key={row.turn}>
+          <tr key={row.turn} className={row.charge ? "has-charge" : undefined}>
             <td className="hp num">{row.hpA}</td>
             <MoveCell cell={row.a} />
             <td className="turn num">{row.turn}</td>
@@ -537,7 +550,7 @@ function MoveCell({ cell }: { cell: SheetCell | null }) {
   if (!cell) return <td className="move is-empty" />;
   if (!cell.show) return null;
   return (
-    <td className="move" rowSpan={cell.span} style={{ background: typePastel(cell.type) }}>
+    <td className="move" rowSpan={cell.span} style={{ background: typeWash(cell.type) }}>
       <span className="move-label">
         <span>{cell.name}</span>
         {cell.damage > 0 ? <span className="num move-dmg">{cell.shielded ? `${cell.damage}防` : cell.damage}</span> : null}
@@ -569,6 +582,10 @@ const TYPE_PASTEL: Record<string, string> = {
 
 function typePastel(type: string) {
   return TYPE_PASTEL[type] ?? "#e7eef2";
+}
+
+function typeWash(type: string) {
+  return `color-mix(in srgb, ${typePastel(type)} 50%, white)`;
 }
 
 function HpBar({ name, hp, max, tone }: { name: string; hp: number; max: number; tone: "self" | "foe" }) {

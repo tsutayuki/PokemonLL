@@ -1025,6 +1025,18 @@ select.input {
   font-weight: 700;
 }
 
+.battle-sheet tr.has-charge > td {
+  border-bottom-width: 2px;
+  border-bottom-color: rgba(28, 44, 58, 0.62);
+}
+
+.type-wash-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 @keyframes bg-drift {
   from { transform: scale(1) translate(0, 0); }
   to { transform: scale(1.08) translate(1.4%, 1%); }
@@ -2256,15 +2268,25 @@ select.input {
 .sim-card.has-type::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -8%;
   z-index: 0;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--type-main) 44%, white) 0%,
-    color-mix(in srgb, var(--type-main) 40%, white) 62%,
-    color-mix(in srgb, var(--type-accent) 24%, white) 78%,
-    color-mix(in srgb, var(--type-accent) 36%, white) 100%
-  );
+  background:
+    radial-gradient(ellipse 46% 28% at 64% 6%, color-mix(in srgb, var(--type-accent) 50%, white) 0%, transparent 70%),
+    radial-gradient(ellipse 38% 36% at 98% 28%, color-mix(in srgb, var(--type-accent) 52%, white) 0%, transparent 68%),
+    radial-gradient(ellipse 24% 20% at 52% 48%, color-mix(in srgb, var(--type-accent) 36%, white) 0%, transparent 74%),
+    radial-gradient(ellipse 50% 34% at 86% 74%, color-mix(in srgb, var(--type-accent) 48%, white) 0%, transparent 70%),
+    radial-gradient(ellipse 32% 22% at 78% 98%, color-mix(in srgb, var(--type-accent) 44%, white) 0%, transparent 72%),
+    radial-gradient(ellipse 52% 30% at 8% 14%, color-mix(in srgb, var(--type-main) 54%, white) 0%, transparent 70%),
+    radial-gradient(ellipse 44% 38% at 24% 46%, color-mix(in srgb, var(--type-main) 50%, white) 0%, transparent 72%),
+    radial-gradient(ellipse 36% 26% at 62% 86%, color-mix(in srgb, var(--type-main) 42%, white) 0%, transparent 74%),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--type-main) 48%, white) 0%,
+      color-mix(in srgb, var(--type-main) 30%, white) 58%,
+      color-mix(in srgb, var(--type-accent) 22%, white) 76%,
+      color-mix(in srgb, var(--type-accent) 40%, white) 100%
+    );
+  filter: url("#type-wash");
 }
 
 .sim-card.has-type > * {
