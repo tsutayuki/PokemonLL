@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { ArrowLeft } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
@@ -14,7 +14,7 @@ import {
   type PogoStatRecord,
   type SpeciesGroup,
 } from "../../lib/pogo/research";
-import { simulateBattle, simulateShieldGrid, type ChargeTiming, type FighterInput } from "../../lib/pogo/simulate";
+import { simulateBattle, simulateShieldGrid, type ChargeTiming, type FighterInput, type TimelineEvent } from "../../lib/pogo/simulate";
 import { useResearchData } from "../shared/useResearchData";
 import { openPokemonSearch } from "../shared/pokemonSearchApi";
 
@@ -210,22 +210,12 @@ export function SimResearchPage() {
               ) : null}
 
               <section className="panel">
-                <h2 className="panel-title">タイムライン</h2>
-                <div className="timeline">
-                  {result.timeline.slice(0, 48).map((event, index) => (
-                    <div key={`${event.turn}-${index}`} className={`timeline-row is-${event.actor}`}>
-                      <span className="num timeline-turn">T{event.turn}</span>
-                      <span className="timeline-main">
-                        <span className="timeline-who">{event.actor === "a" ? fighterA.name : fighterB.name}</span>
-                        <span>
-                          {event.moveName}
-                          {event.shielded ? "（シールド）" : ""}
-                        </span>
-                        <span className="timeline-hp num">
-                          {event.hpA}/{event.hpB}
-                        </span>
-                      </span>
-                      <span className="num timeline-dmg">{event.damage}</span>
+                <div className="battle-log" aria-label="行動">
+                  {pairTimeline(result.timeline).slice(0, 80).map((row, index) => (
+                    <div key={`${row.turn}-${index}`} className="battle-log-row">
+                      <BattleLogSide event={row.a} align="start" />
+                      <span className="battle-log-turn num">{row.turn}</span>
+                      <BattleLogSide event={row.b} align="end" />
                     </div>
                   ))}
                 </div>
@@ -303,9 +293,16 @@ function FighterCard({
   const chargedValue = chargedMoves.some((move) => move.id === side.chargedId) ? side.chargedId : (chargedMoves[0]?.id ?? "");
   const charged2Value = chargedMoves.some((move) => move.id === side.chargedId2) ? side.chargedId2 : "";
   const stats = packed?.build;
+  const types = packed?.pvp.types ?? [];
+  const typeStyle: CSSProperties | undefined = types.length
+    ? ({
+        "--type-main": typePastel(types[0]),
+        "--type-accent": typePastel(types[1] ?? types[0]),
+      } as CSSProperties)
+    : undefined;
 
   return (
-    <section className={`sim-card is-${tone}`}>
+    <section className={`sim-card is-${tone}${types.length ? " has-type" : ""}`} style={typeStyle}>
       <p className="sim-role">{title}</p>
       <button
         type="button"
@@ -334,18 +331,20 @@ function FighterCard({
           });
         }}
       >
-        {side.record ? (
-          <PokemonDotSprite
-            pokemonId={side.record.pokemon_id}
-            form={side.exactSprite ? undefined : side.record.form}
-            exact={side.exactSprite}
-            spriteSuffix={side.spriteSuffix}
-            alt=""
-            size={48}
-          />
-        ) : (
-          <img className="pokemon-dot-sprite" src="/Image/sprite/Question_Mark.png" alt="" width={48} height={48} />
-        )}
+        <span className="sprite-slot">
+          {side.record ? (
+            <PokemonDotSprite
+              pokemonId={side.record.pokemon_id}
+              form={side.exactSprite ? undefined : side.record.form}
+              exact={side.exactSprite}
+              spriteSuffix={side.spriteSuffix}
+              alt=""
+              size={40}
+            />
+          ) : (
+            <img className="pokemon-dot-sprite" src="/Image/sprite/Question_Mark.png" alt="" width={40} height={40} />
+          )}
+        </span>
         <span className="identity-pick-name">{side.record ? side.label : "検索"}</span>
       </button>
 
@@ -441,6 +440,61 @@ function FighterCard({
       ) : null}
     </section>
   );
+}
+
+function pairTimeline(events: TimelineEvent[]) {
+  const rows: { turn: number; a: TimelineEvent | null; b: TimelineEvent | null }[] = [];
+  for (const event of events) {
+    const last = rows[rows.length - 1];
+    if (last && last.turn === event.turn && last[event.actor] === null) {
+      last[event.actor] = event;
+      continue;
+    }
+    rows.push({
+      turn: event.turn,
+      a: event.actor === "a" ? event : null,
+      b: event.actor === "b" ? event : null,
+    });
+  }
+  return rows;
+}
+
+function BattleLogSide({ event, align }: { event: TimelineEvent | null; align: "start" | "end" }) {
+  if (!event) return <span className={`battle-log-side is-${align}`} />;
+  const name = `${event.moveName}${event.shielded ? "（シールド）" : ""}`;
+  const damage = <span className="num battle-log-dmg">{event.damage}</span>;
+  return (
+    <span className={`battle-log-side is-${align}`}>
+      {align === "end" ? damage : null}
+      <span>{name}</span>
+      {align === "start" ? damage : null}
+    </span>
+  );
+}
+
+const TYPE_PASTEL: Record<string, string> = {
+  normal: "#e4ddd2",
+  fire: "#f7c7b4",
+  water: "#b7ddf6",
+  electric: "#f8ebae",
+  grass: "#c5e6bc",
+  ice: "#d2f3f6",
+  fighting: "#f3c4bc",
+  poison: "#e2c6ea",
+  ground: "#ead7b4",
+  flying: "#d4e0f6",
+  psychic: "#f6c6dc",
+  bug: "#dce8aa",
+  rock: "#e6dcc6",
+  ghost: "#d2cbe4",
+  dragon: "#c9d2f4",
+  dark: "#d4cedc",
+  steel: "#dce3e8",
+  fairy: "#f8d4e8",
+};
+
+function typePastel(type: string) {
+  return TYPE_PASTEL[type] ?? "#e7eef2";
 }
 
 function HpBar({ name, hp, max, tone }: { name: string; hp: number; max: number; tone: "self" | "foe" }) {

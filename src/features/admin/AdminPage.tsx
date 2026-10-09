@@ -239,7 +239,7 @@ function PokemonEditor({ bundle, onSaved }: { bundle: PvpBundle; onSaved: () => 
 
   return (
     <div className="admin-editor">
-      <p className="note">×で外す前に確認します。＋追加は、その列の技だけを検索します。履歴は出しません。</p>
+      <p className="note">×で外す前に確認します。＋追加は、その列の技だけを検索します。</p>
       <button
         type="button"
         className="identity-pick"
@@ -257,21 +257,23 @@ function PokemonEditor({ bundle, onSaved }: { bundle: PvpBundle; onSaved: () => 
           });
         }}
       >
-        {picked ? (
-          <PokemonDotSprite
-            pokemonId={picked.pokemonId}
-            form={picked.exactSprite ? undefined : picked.form}
-            exact={picked.exactSprite}
-            spriteSuffix={picked.spriteSuffix}
-            alt=""
-            size={52}
-          />
-        ) : (
-          <img className="pokemon-dot-sprite" src="/Image/sprite/Question_Mark.png" alt="" width={52} height={52} />
-        )}
+        <span className="sprite-slot">
+          {picked ? (
+            <PokemonDotSprite
+              pokemonId={picked.pokemonId}
+              form={picked.exactSprite ? undefined : picked.form}
+              exact={picked.exactSprite}
+              spriteSuffix={picked.spriteSuffix}
+              alt=""
+              size={44}
+            />
+          ) : (
+            <img className="pokemon-dot-sprite" src="/Image/sprite/Question_Mark.png" alt="" width={44} height={44} />
+          )}
+        </span>
         <span>
           <span className="identity-pick-name">{picked ? picked.label : "ポケモンを検索"}</span>
-          <span className="note">{picked ? "押すと入れ替え" : "個体値と同じ検索です"}</span>
+          {picked ? <span className="note">押すと入れ替え</span> : null}
         </span>
       </button>
 
@@ -412,9 +414,9 @@ function MoveEditor({ moves, onSaved }: { moves: PvpMove[]; onSaved: () => void 
       <button type="button" className="identity-pick is-text" onClick={() => setOpen(true)}>
         <span>
           <span className="identity-pick-name">{picked ? picked.name : "技を検索"}</span>
-          <span className="note">
-            {picked ? (picked.kind === "fast" ? "ノーマルアタック" : "スペシャルアタック") : "履歴は出しません"}
-          </span>
+          {picked ? (
+            <span className="note">{picked.kind === "fast" ? "ノーマルアタック" : "スペシャルアタック"}</span>
+          ) : null}
         </span>
       </button>
 

@@ -963,45 +963,49 @@ select.input {
   box-shadow: 0 0 0 2px rgba(196, 154, 18, 0.28);
 }
 
-.timeline {
+.battle-log {
   display: grid;
   gap: 6px;
   max-height: 22rem;
   overflow: auto;
 }
 
-.timeline-row {
+.battle-log-row {
   display: grid;
-  grid-template-columns: 2.8rem minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 2.2rem minmax(0, 1fr);
+  gap: 0.45rem;
   align-items: center;
-  padding: 0.45rem 0.55rem;
+  min-height: 2.4rem;
+  padding: 0.35rem 0.45rem;
   border-radius: var(--radius);
   background: var(--surface);
   font-size: 0.8125rem;
 }
 
-.timeline-main {
-  display: grid;
-  gap: 0.1rem;
+.battle-log-side {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
   min-width: 0;
 }
 
-.timeline-who {
-  font-weight: 700;
+.battle-log-side.is-start {
+  justify-content: flex-start;
 }
 
-.timeline-hp {
+.battle-log-side.is-end {
+  justify-content: flex-end;
+}
+
+.battle-log-turn {
   color: var(--text-faint);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
+  text-align: center;
 }
 
-.timeline-dmg {
+.battle-log-dmg {
   font-weight: 700;
 }
-
-.timeline-row.is-a { box-shadow: inset 3px 0 0 var(--accent); }
-.timeline-row.is-b { box-shadow: inset 3px 0 0 var(--bad); }
 
 @keyframes bg-drift {
   from { transform: scale(1) translate(0, 0); }
@@ -1108,10 +1112,6 @@ select.input {
 
   .iv-damage-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .timeline-row {
-    grid-template-columns: 2.4rem minmax(0, 1fr) auto;
   }
 
   .picker-panel {
@@ -1930,8 +1930,8 @@ select.input {
 
 .search-result {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 0.85rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.35rem 1rem;
   align-items: center;
   width: 100%;
   min-height: 3.5rem;
@@ -2106,10 +2106,26 @@ select.input {
   cursor: pointer;
 }
 
+.sprite-slot {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  flex: none;
+}
+
+.sprite-slot .pokemon-dot-sprite {
+  width: 36px;
+  height: 36px;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .identity-pick {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 0.55rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.35rem 0.85rem;
   align-items: center;
   width: 100%;
   min-height: 3.5rem;
@@ -2212,8 +2228,34 @@ select.input {
   min-height: 2.75rem;
 }
 
-.sim-card .identity-pick {
-  grid-template-columns: 40px minmax(0, 1fr);
+.sim-card.has-type {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: #f7f9fb;
+}
+
+.sim-card.has-type::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 22%, var(--type-main) 0%, transparent 56%),
+    radial-gradient(circle at 84% 78%, var(--type-accent) 0%, transparent 52%),
+    linear-gradient(165deg, color-mix(in srgb, var(--type-main) 46%, white), color-mix(in srgb, var(--type-accent) 28%, white));
+  background-size: 180% 180%;
+  animation: type-wash 16s ease-in-out infinite alternate;
+}
+
+.sim-card.has-type > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes type-wash {
+  from { background-position: 0% 0%; transform: translate3d(0, 0, 0) scale(1); }
+  to { background-position: 18% 12%; transform: translate3d(2%, -2%, 0) scale(1.05); }
 }
 
 .sim-card .identity-pick-name {
@@ -2251,10 +2293,15 @@ select.input {
     gap: 0.45rem;
   }
 
+  .sprite-slot {
+    width: 3rem;
+    height: 3rem;
+  }
+
   .identity-pick {
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 0.35rem;
-    padding: 0.3rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.25rem 0.7rem;
+    padding: 0.3rem 0.45rem;
   }
 
   .sim-cp {

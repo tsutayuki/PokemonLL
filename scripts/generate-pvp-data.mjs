@@ -25,6 +25,22 @@ const NAME_OVERRIDES = {
   "techno blast shock": "テクノバスター（でんき）",
   "techno blast water": "テクノバスター（みず）",
   "hidden power": "めざめるパワー",
+  "hidden power (bug)": "めざめるパワー(むし)",
+  "hidden power (dark)": "めざめるパワー(あく)",
+  "hidden power (dragon)": "めざめるパワー(ドラゴン)",
+  "hidden power (electric)": "めざめるパワー(でんき)",
+  "hidden power (fighting)": "めざめるパワー(かくとう)",
+  "hidden power (fire)": "めざめるパワー(ほのお)",
+  "hidden power (flying)": "めざめるパワー(ひこう)",
+  "hidden power (ghost)": "めざめるパワー(ゴースト)",
+  "hidden power (grass)": "めざめるパワー(くさ)",
+  "hidden power (ground)": "めざめるパワー(じめん)",
+  "hidden power (ice)": "めざめるパワー(こおり)",
+  "hidden power (poison)": "めざめるパワー(どく)",
+  "hidden power (psychic)": "めざめるパワー(エスパー)",
+  "hidden power (rock)": "めざめるパワー(いわ)",
+  "hidden power (steel)": "めざめるパワー(はがね)",
+  "hidden power (water)": "めざめるパワー(みず)",
   "aura wheel": "オーラぐるま",
   "triple axel": "トリプルアクセル",
   "trailblaze": "くさわけ",
@@ -238,12 +254,19 @@ const [rawMoves, rawLearnsets, rawTypes, nameCsv] = await Promise.all([
   fetchText(SOURCES.moveNames),
 ]);
 
+/**
+ * PvPoke の moves.json には、既存の技の数値をポケモン名つきで複製したエントリがある。
+ * Water Gun Fast Blastoise と Hydro Pump Blastoise は、みずでっぽうとハイドロポンプと同じ系統の複製で、
+ * どのポケモンの習得リストにも無い。日本語名にも当たらず、技検索に英語のまま出る。
+ */
+const SKIP_MOVE_IDS = new Set(["WATER_GUN_FAST_BLASTOISE", "HYDRO_PUMP_BLASTOISE"]);
+
 const jaByEnglish = parseMoveNameCsv(nameCsv);
 const moves = {};
 const byEnglishName = new Map();
 
 for (const move of rawMoves) {
-  if (!move?.moveId) continue;
+  if (!move?.moveId || SKIP_MOVE_IDS.has(move.moveId)) continue;
   const ja = japaneseName(move.name ?? move.moveId, jaByEnglish);
   const compact = compactMove(move, ja);
   moves[compact.id] = compact;

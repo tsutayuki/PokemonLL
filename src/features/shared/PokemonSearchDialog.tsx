@@ -88,14 +88,16 @@ export function PokemonSearchDialog({
                 className="search-result"
                 onClick={() => onSelect(group)}
               >
-                <PokemonDotSprite
-                  pokemonId={group.pokemonId}
-                  form={group.exactSprite ? undefined : group.entries[0]?.form}
-                  exact={group.exactSprite}
-                  spriteSuffix={group.spriteSuffix}
-                  alt=""
-                  size={40}
-                />
+                <span className="sprite-slot">
+                  <PokemonDotSprite
+                    pokemonId={group.pokemonId}
+                    form={group.exactSprite ? undefined : group.entries[0]?.form}
+                    exact={group.exactSprite}
+                    spriteSuffix={group.spriteSuffix}
+                    alt=""
+                    size={40}
+                  />
+                </span>
                 <span className="search-result-name">{speciesDisplayName(group)}</span>
                 <span className="search-result-no num">No.{String(group.pokemonId).padStart(4, "0")}</span>
               </button>

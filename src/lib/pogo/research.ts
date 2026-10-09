@@ -14,7 +14,7 @@ export type CpMultiplierRecord = {
   multiplier: number;
 };
 
-export type LeagueId = "great" | "ultra" | "master" | "custom";
+export type LeagueId = "little" | "great" | "ultra" | "master" | "custom";
 
 export type LeagueConfig = {
   id: LeagueId;
@@ -56,6 +56,7 @@ export type RankingRow = {
 };
 
 export const leagueConfigs: LeagueConfig[] = [
+  { id: "little", label: "リトルカップ", cap: 500 },
   { id: "great", label: "スーパーリーグ", cap: 1500 },
   { id: "ultra", label: "ハイパーリーグ", cap: 2500 },
   { id: "master", label: "マスターリーグ", cap: 9999 },

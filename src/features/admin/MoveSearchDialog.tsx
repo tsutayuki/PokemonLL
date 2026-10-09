@@ -65,7 +65,7 @@ export function MoveSearchDialog({
           </button>
         </div>
         <p className="search-overlay-hint">
-          {query.trim() ? "ひらがな・カタカナ・ローマ字・英語名" : "名前の順に80件。履歴は出しません"}
+          {query.trim() ? "ひらがな・カタカナ・ローマ字・英語名" : "名前の順に80件"}
         </p>
         <div className="search-overlay-results" role="listbox">
           {results.length === 0 ? (
@@ -74,9 +74,9 @@ export function MoveSearchDialog({
             results.map((move) => (
               <button key={move.id} type="button" className="search-result move-search-result" onClick={() => onSelect(move)}>
                 <span className="search-result-name">{move.name}</span>
-                <span className="search-result-no">
-                  {move.kind === "fast" ? "ノーマル" : "スペシャル"} {move.power}
-                </span>
+                {kind ? null : (
+                  <span className="search-result-no">{move.kind === "fast" ? "ノーマル" : "スペシャル"}</span>
+                )}
               </button>
             ))
           )}
