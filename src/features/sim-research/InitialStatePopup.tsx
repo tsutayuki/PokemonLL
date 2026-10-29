@@ -110,12 +110,12 @@ export function InitialStatePopup({
                 onCommit={(value) => patch({ initialEnergy: value })}
               />
               <div className="initial-gauge-actions">
-                <button type="button" className="initial-gain" disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy + gain, 0, 100) })}>
+                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy + gain, 0, 100) })}>
                   {fastName}＋１
-                </button>
-                <button type="button" className="initial-gain" disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy - gain, 0, 100) })}>
+                </GainButton>
+                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy - gain, 0, 100) })}>
                   {fastName}ー１
-                </button>
+                </GainButton>
               </div>
             </div>
           </div>
@@ -139,6 +139,42 @@ export function InitialStatePopup({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function GainButton({
+  disabled,
+  onClick,
+  children,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  const [held, setHeld] = useState(false);
+
+  return (
+    <button
+      type="button"
+      className={`initial-gain${held ? " is-held" : ""}`}
+      disabled={disabled}
+      onPointerDown={(event) => {
+        if (disabled || event.button !== 0) return;
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // 実ポインタ以外ではキャプチャできない。色の反応だけ残す。
+        }
+        setHeld(true);
+      }}
+      onPointerUp={() => setHeld(false)}
+      onPointerCancel={() => setHeld(false)}
+      onLostPointerCapture={() => setHeld(false)}
+      onContextMenu={(event) => event.preventDefault()}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
