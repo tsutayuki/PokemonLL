@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { PvpMove } from "../../lib/pogo/combat";
 import {
@@ -318,6 +318,33 @@ export function TimelineCustom({
     onClose();
   };
   const rows = Array.from({ length: aligned.turns }, (_, index) => index + 1);
+  useLayoutEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let frame = 0;
+    const fit = () => {
+      root.querySelectorAll<HTMLElement>(".move-name").forEach((name) => {
+        name.style.fontSize = "";
+        let size = Number.parseFloat(getComputedStyle(name).fontSize);
+        const floor = 7.5;
+        while (size > floor && name.scrollWidth > name.clientWidth + 0.5) {
+          size -= 0.5;
+          name.style.fontSize = `${size}px`;
+        }
+      });
+    };
+    const run = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    };
+    run();
+    const observer = new ResizeObserver(run);
+    observer.observe(root);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [aligned]);
 
   return createPortal(
     <div className="search-overlay is-centered timeline-custom-overlay" role="dialog" aria-modal="true" aria-label="タイムラインカスタム">
@@ -329,6 +356,13 @@ export function TimelineCustom({
         </p>
         <div ref={scrollRef} className={`timeline-custom-scroll${dragging ? " is-dragging" : ""}`}>
           <table className="battle-sheet timeline-custom-sheet" aria-label="タイムラインの編集">
+            <colgroup>
+              <col className="tl-col-grip" />
+              <col className="tl-col-move" />
+              <col className="tl-col-turn" />
+              <col className="tl-col-move" />
+              <col className="tl-col-grip" />
+            </colgroup>
             <tbody>
               {rows.map((turn) => {
                 const cellA = spanAt(aligned.a.spans, turn);

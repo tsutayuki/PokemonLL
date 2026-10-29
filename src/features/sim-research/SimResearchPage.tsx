@@ -33,6 +33,7 @@ import {
 } from "../../lib/pogo/simulate";
 import { moveBonusEffectLines } from "../../lib/pogo/moveBonusEffect";
 import { TimelineOps, PlanPopup, ThrowPopup, chargedNameAt } from "./TimelineOps";
+import { InitialStatePopup, type InitialState } from "./InitialStatePopup";
 import { TimelineCustom } from "./TimelineCustom";
 import { extendPlanFromTimeline, fillLaggingSide, type TimelineStep } from "../../lib/pogo/timelinePlan";
 import { IvBars } from "../shared/IvBars";
@@ -88,6 +89,13 @@ export type SideState = {
   applyChanceBuffs: boolean;
   timelineMode: "optimal" | "custom";
   timelinePlan: TimelineStep[] | null;
+  initialOn: boolean;
+  /** 0ターン目までに受けているダメージ。残HPは最大HPから引く。 */
+  initialDamage: number;
+  /** 0～100。 */
+  initialEnergy: number;
+  initialAttackStage: number;
+  initialDefenseStage: number;
 };
 
 const emptySide: SideState = {
@@ -114,6 +122,11 @@ const emptySide: SideState = {
   applyChanceBuffs: false,
   timelineMode: "optimal",
   timelinePlan: null,
+  initialOn: false,
+  initialDamage: 0,
+  initialEnergy: 0,
+  initialAttackStage: 0,
+  initialDefenseStage: 0,
 };
 
 function blankSlots() {
@@ -134,6 +147,11 @@ function clearPlans(side: SideState): SideState {
     throwTweaks: blankTweaks(),
     timelineMode: "optimal",
     timelinePlan: null,
+    initialOn: false,
+    initialDamage: 0,
+    initialEnergy: 0,
+    initialAttackStage: 0,
+    initialDefenseStage: 0,
   };
 }
 
@@ -702,6 +720,14 @@ function packFighter(
     shieldThrows: side.shieldMode === "custom" && shieldCustomActive ? side.shieldSlots : null,
     throwTweaks: side.throwTweaks,
   };
+  if (side.initialOn) {
+    const maxHp = build.stamina;
+    const damage = Math.max(0, Math.min(maxHp, Math.floor(side.initialDamage)));
+    input.startHp = maxHp - damage;
+    input.startEnergy = Math.max(0, Math.min(100, Math.floor(side.initialEnergy)));
+    input.startAttackStage = Math.max(-4, Math.min(4, Math.trunc(side.initialAttackStage)));
+    input.startDefenseStage = Math.max(-4, Math.min(4, Math.trunc(side.initialDefenseStage)));
+  }
   return { name: side.label || entry.pokemon_name, pvp, build, fasts, chargedMoves, thirdMove: thirdBase, input };
 }
 
@@ -733,6 +759,8 @@ function FighterCard({
   const thirdMove = packed?.thirdMove ?? null;
   const stats = packed?.build;
   const types = packed?.pvp.types ?? [];
+  const fastMove = fasts.find((move) => move.id === fastValue) ?? fasts[0] ?? null;
+  const [initialOpen, setInitialOpen] = useState(false);
   const typeStyle: CSSProperties | undefined = types.length
     ? ({
         "--type-main": typePastel(types[0]),
@@ -897,10 +925,43 @@ function FighterCard({
           </label>
         </div>
       ) : null}
+      {stats ? (
+        <button
+          type="button"
+          className={`timeline-custom-open sim-initial-open${side.initialOn ? " is-on" : ""}`}
+          onClick={() => setInitialOpen(true)}
+        >
+          初期条件
+        </button>
+      ) : null}
+      {initialOpen && side.record && stats ? (
+        <InitialStatePopup
+          record={side.record}
+          exactSprite={side.exactSprite}
+          spriteSuffix={side.spriteSuffix}
+          label={side.label}
+          maxHp={stats.stamina}
+          fastName={fastMove?.name ?? "ノーマルアタック"}
+          fastGain={fastMove?.energyGain ?? 0}
+          state={initialStateOf(side)}
+          onChange={(next: InitialState) => onChange({ ...side, ...next })}
+          onClose={() => setInitialOpen(false)}
+        />
+      ) : null}
         </>
       ) : null}
     </section>
   );
+}
+
+function initialStateOf(side: SideState): InitialState {
+  return {
+    initialOn: side.initialOn,
+    initialDamage: side.initialDamage,
+    initialEnergy: side.initialEnergy,
+    initialAttackStage: side.initialAttackStage,
+    initialDefenseStage: side.initialDefenseStage,
+  };
 }
 
 type SheetCell = {

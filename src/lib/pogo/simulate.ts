@@ -38,6 +38,14 @@ export type FighterInput = {
   switchPlan?: SwitchPlan | null;
   /** タイムラインカスタム。ある側は、この順で技か待機を行う。尽きたあとは最適で続ける。 */
   timelinePlan?: TimelineStep[] | null;
+  /** 0ターン目の残りHP。未指定なら hp（最大）から始める。 */
+  startHp?: number;
+  /** 0ターン目のゲージ。0～100。未指定なら 0。 */
+  startEnergy?: number;
+  /** 0ターン目の攻撃ランク。-4～4。未指定なら 0。 */
+  startAttackStage?: number;
+  /** 0ターン目の防御ランク。-4～4。未指定なら 0。 */
+  startDefenseStage?: number;
 };
 
 export type SwitchPlan = {
@@ -116,7 +124,18 @@ type FighterState = FighterInput & {
 };
 
 function clampStage(value: number) {
-  return Math.max(-4, Math.min(4, value));
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-4, Math.min(4, Math.trunc(value)));
+}
+
+function clampEnergy(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.floor(value)));
+}
+
+function clampStartHp(value: number | undefined, maxHp: number) {
+  if (value == null || !Number.isFinite(value)) return maxHp;
+  return Math.max(0, Math.min(maxHp, Math.floor(value)));
 }
 
 function cctTurnsLeft(myTurns: number, oppTurns: number) {
@@ -290,14 +309,15 @@ function applySwitch(fighter: FighterState, next: SwitchPlan["next"]) {
 }
 
 function createFighter(id: FighterId, input: FighterInput): FighterState {
+  const maxHp = Math.max(0, input.hp);
   return {
     ...input,
     id,
-    hp: input.hp,
-    energy: 0,
+    hp: clampStartHp(input.startHp, maxHp),
+    energy: clampEnergy(input.startEnergy ?? 0),
     shieldsLeft: input.shields,
-    attackStage: 0,
-    defenseStage: 0,
+    attackStage: clampStage(input.startAttackStage ?? 0),
+    defenseStage: clampStage(input.startDefenseStage ?? 0),
     action: null,
     planIndex: 0,
     farmed: 0,
