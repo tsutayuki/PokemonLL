@@ -4170,7 +4170,8 @@ button.shield-corner.is-selected {
 
 .initial-gain.is-held:not(:disabled),
 .initial-gain:active:not(:disabled) {
-  background: var(--accent);
+  background-color: var(--accent);
+  background-image: none;
   color: #07332e;
   box-shadow: inset 0 2px 4px rgba(12, 74, 72, 0.35);
 }

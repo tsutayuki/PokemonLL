@@ -111,10 +111,10 @@ export function InitialStatePopup({
               />
               <div className="initial-gauge-actions">
                 <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy + gain, 0, 100) })}>
-                  {fastName}＋１
+                  {fastName}＋{gain}
                 </GainButton>
                 <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy - gain, 0, 100) })}>
-                  {fastName}ー１
+                  {fastName}ー{gain}
                 </GainButton>
               </div>
             </div>
@@ -142,6 +142,14 @@ export function InitialStatePopup({
   );
 }
 
+function paintGain(button: HTMLButtonElement, held: boolean) {
+  button.classList.toggle("is-held", held);
+  button.style.backgroundColor = held ? "var(--accent)" : "";
+  button.style.backgroundImage = held ? "none" : "";
+  button.style.color = held ? "#07332e" : "";
+  button.style.boxShadow = held ? "inset 0 2px 4px rgba(12, 74, 72, 0.35)" : "";
+}
+
 function GainButton({
   disabled,
   onClick,
@@ -151,25 +159,23 @@ function GainButton({
   onClick: () => void;
   children: string;
 }) {
-  const [held, setHeld] = useState(false);
-
   return (
     <button
       type="button"
-      className={`initial-gain${held ? " is-held" : ""}`}
+      className="initial-gain"
       disabled={disabled}
       onPointerDown={(event) => {
         if (disabled || event.button !== 0) return;
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        } catch {
-          // 実ポインタ以外ではキャプチャできない。色の反応だけ残す。
-        }
-        setHeld(true);
+        const button = event.currentTarget;
+        paintGain(button, true);
+        const end = () => {
+          paintGain(button, false);
+          window.removeEventListener("pointerup", end, true);
+          window.removeEventListener("pointercancel", end, true);
+        };
+        window.addEventListener("pointerup", end, true);
+        window.addEventListener("pointercancel", end, true);
       }}
-      onPointerUp={() => setHeld(false)}
-      onPointerCancel={() => setHeld(false)}
-      onLostPointerCapture={() => setHeld(false)}
       onContextMenu={(event) => event.preventDefault()}
       onClick={onClick}
     >
