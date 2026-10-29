@@ -1731,6 +1731,8 @@ select.input {
 }
 
 .iv-bar-block {
+  --iv-cell-gap: 3px;
+  --iv-split-extra: 3px;
   display: grid;
   grid-template-columns: 2.8rem minmax(0, 1fr);
   gap: 8px;
@@ -1745,7 +1747,7 @@ select.input {
 
 .iv-bar {
   display: flex;
-  gap: 3px;
+  gap: var(--iv-cell-gap);
   min-height: 2rem;
   touch-action: pan-y;
   user-select: none;
@@ -1771,10 +1773,10 @@ select.input {
   touch-action: pan-y;
 }
 
-/* 5と6、10と11の間だけ、通常の3pxの2倍。 */
+/* 5と6、10と11の間だけ、通常の隙間にこの分を足して2倍にする。 */
 .iv-bar-cell:nth-child(6),
 .iv-bar-cell:nth-child(11) {
-  margin-right: 3px;
+  margin-right: var(--iv-split-extra);
 }
 
 .iv-bar-cell.is-zero,
@@ -2905,20 +2907,19 @@ select.input {
 
 @media (max-width: 720px) {
   .iv-page .iv-bar-block {
+    --iv-cell-gap: 2px;
+    /* 画面端からは、5と6のあいだ（通常の隙間 + 追加分）と同じだけ空ける。 */
+    --iv-edge: calc(var(--iv-cell-gap) + var(--iv-split-extra));
     grid-template-columns: minmax(0, 1fr);
     gap: 0.15rem;
-    width: calc(100% + 40px);
-    margin-inline: -20px;
+    width: calc(100% + 40px - 2 * var(--iv-edge));
+    margin-inline: calc(-20px + var(--iv-edge));
   }
 
   .iv-page .iv-bar-label {
-    padding-inline: 20px;
+    padding-inline: calc(20px - var(--iv-edge));
     font-size: 0.68rem;
     line-height: 1.2;
-  }
-
-  .iv-page .iv-bar {
-    gap: 2px;
   }
 
   .iv-page .iv-bar-cell {
@@ -2934,12 +2935,12 @@ select.input {
 
 @media (max-width: 640px) {
   .iv-page .iv-bar-block {
-    width: calc(100% + 28px);
-    margin-inline: -14px;
+    width: calc(100% + 28px - 2 * var(--iv-edge));
+    margin-inline: calc(-14px + var(--iv-edge));
   }
 
   .iv-page .iv-bar-label {
-    padding-inline: 14px;
+    padding-inline: calc(14px - var(--iv-edge));
   }
 }
 
