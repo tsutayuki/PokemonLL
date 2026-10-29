@@ -1732,15 +1732,13 @@ select.input {
 
 .iv-bar-block {
   display: grid;
-  grid-template-columns: 4.6rem minmax(0, 1fr);
+  grid-template-columns: 2.8rem minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
 
 .iv-bar-label {
   display: flex;
-  justify-content: space-between;
-  gap: 6px;
   font-size: 0.8125rem;
   font-weight: 700;
 }
@@ -1755,12 +1753,20 @@ select.input {
 
 .iv-bar-cell {
   flex: 1 1 0;
+  display: grid;
+  place-items: center;
   min-width: 0;
   min-height: 2rem;
   padding: 0;
   border: 0;
   border-radius: 2px;
   background: #d5dde4;
+  color: #243240;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
   cursor: pointer;
   touch-action: pan-y;
 }
@@ -1769,6 +1775,14 @@ select.input {
 .iv-bar-cell:nth-child(6),
 .iv-bar-cell:nth-child(11) {
   margin-right: 3px;
+}
+
+.iv-bar-cell.is-zero,
+.iv-bar-cell.is-iv-low,
+.iv-bar-cell.is-iv-mid,
+.iv-bar-cell.is-iv-high,
+.iv-bar-cell.is-iv-max {
+  color: #fff;
 }
 
 .iv-bar-cell.is-zero {
@@ -2886,7 +2900,47 @@ select.input {
 }
 
 .sim-iv-panel .iv-bar-block {
-  grid-template-columns: 3.4rem minmax(0, 1fr);
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+}
+
+@media (max-width: 720px) {
+  .iv-page .iv-bar-block {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+    width: calc(100% + 40px);
+    margin-inline: -20px;
+  }
+
+  .iv-page .iv-bar-label {
+    padding-inline: 20px;
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .iv-page .iv-bar {
+    gap: 2px;
+  }
+
+  .iv-page .iv-bar-cell {
+    min-height: 2.55rem;
+    font-size: clamp(0.62rem, 2.7vw, 0.78rem);
+  }
+
+  .iv-page .iv-slide-note,
+  .iv-page .buddy-toggle {
+    margin-inline: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .iv-page .iv-bar-block {
+    width: calc(100% + 28px);
+    margin-inline: -14px;
+  }
+
+  .iv-page .iv-bar-label {
+    padding-inline: 14px;
+  }
 }
 
 .sim-iv-actions {

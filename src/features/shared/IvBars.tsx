@@ -97,7 +97,6 @@ function IvBar({
     <div className="iv-bar-block">
       <div className="iv-bar-label">
         <span>{label}</span>
-        <strong className="num">{value}</strong>
       </div>
       <div
         className="iv-bar"
@@ -165,7 +164,9 @@ function IvBar({
                 }
                 onChange(index);
               }}
-            />
+            >
+              {index}
+            </button>
           );
         })}
       </div>

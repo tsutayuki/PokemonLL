@@ -709,7 +709,7 @@
         "base_stamina": 146,
         "form": "Normal",
         "pokemon_id": 29,
-        "pokemon_name": "Nidoran\u2640"
+        "pokemon_name": "Nidoran♀"
     },
     {
         "base_attack": 117,
@@ -733,7 +733,7 @@
         "base_stamina": 130,
         "form": "Normal",
         "pokemon_id": 32,
-        "pokemon_name": "Nidoran\u2642"
+        "pokemon_name": "Nidoran♂"
     },
     {
         "base_attack": 137,
@@ -1293,7 +1293,7 @@
         "base_stamina": 141,
         "form": "Galarian",
         "pokemon_id": 83,
-        "pokemon_name": "Farfetch\u2019d"
+        "pokemon_name": "Farfetch’d"
     },
     {
         "base_attack": 124,
@@ -1301,7 +1301,7 @@
         "base_stamina": 141,
         "form": "Normal",
         "pokemon_id": 83,
-        "pokemon_name": "Farfetch\u2019d"
+        "pokemon_name": "Farfetch’d"
     },
     {
         "base_attack": 158,
@@ -4416,10 +4416,26 @@
         "pokemon_name": "Kyogre"
     },
     {
+        "base_attack": 353,
+        "base_defense": 268,
+        "base_stamina": 218,
+        "form": "Primal",
+        "pokemon_id": 382,
+        "pokemon_name": "Kyogre"
+    },
+    {
         "base_attack": 270,
         "base_defense": 228,
         "base_stamina": 205,
         "form": "Normal",
+        "pokemon_id": 383,
+        "pokemon_name": "Groudon"
+    },
+    {
+        "base_attack": 353,
+        "base_defense": 268,
+        "base_stamina": 218,
+        "form": "Primal",
         "pokemon_id": 383,
         "pokemon_name": "Groudon"
     },
@@ -9112,6 +9128,14 @@
         "pokemon_name": "Minior"
     },
     {
+        "base_attack": 116,
+        "base_defense": 194,
+        "base_stamina": 155,
+        "form": "Meteor",
+        "pokemon_id": 774,
+        "pokemon_name": "Minior"
+    },
+    {
         "base_attack": 216,
         "base_defense": 165,
         "base_stamina": 163,
@@ -9901,7 +9925,7 @@
         "base_stamina": 158,
         "form": "Galarian",
         "pokemon_id": 865,
-        "pokemon_name": "Sirfetch\u2019d"
+        "pokemon_name": "Sirfetch’d"
     },
     {
         "base_attack": 212,

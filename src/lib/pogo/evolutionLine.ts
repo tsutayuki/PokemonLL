@@ -106,6 +106,10 @@ export function buildEvolutionLine(selected: PogoStatRecord, stats: PogoStatReco
   };
 
   pushBase(selected, 0);
+  if (selected.pokemon_id === 681 || selected.pokemon_id === 774) {
+    const family = stats.filter((record) => record.pokemon_id === selected.pokemon_id);
+    for (const sibling of collapse(family, data, selected)) pushBase(sibling, 0);
+  }
   const queue: { record: PogoStatRecord; stage: number }[] = [{ record: selected, stage: 0 }];
   while (queue.length > 0) {
     const current = queue.shift();
@@ -277,6 +281,12 @@ function findMegaSelection(selected: PogoStatRecord, data: EvolutionData) {
 function memberLabel(record: PogoStatRecord, mega: string | null) {
   const name = getPokemonDisplayName(record.pokemon_id, record.pokemon_name);
   if (mega) return `${name}(${megaLabel(mega)})`;
+  if (record.pokemon_id === 382 && record.form === "Primal") return "ゲンシカイオーガ";
+  if (record.pokemon_id === 383 && record.form === "Primal") return "ゲンシグラードン";
+  if (record.pokemon_id === 681 && record.form === "Shield") return "ギルガルド(シールド)";
+  if (record.pokemon_id === 681 && record.form === "Blade") return "ギルガルド(ブレード)";
+  if (record.pokemon_id === 774 && record.form === "Meteor") return "メテノ(りゅうせい)";
+  if (record.pokemon_id === 774) return "メテノ(コア)";
   if (record.form !== "Normal") return `${name} ${formatFormLabel(record.form)}`;
   return name;
 }

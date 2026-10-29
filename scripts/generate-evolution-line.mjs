@@ -236,6 +236,9 @@ for (const [dex, list] of byDex) {
   }
 }
 
+addChild(382, "Normal", 382, "Primal");
+addChild(383, "Normal", 383, "Primal");
+
 const children = {};
 for (const [key, list] of [...childMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
   children[key] = list.sort((a, b) => a.pokemonId - b.pokemonId || a.form.localeCompare(b.form));

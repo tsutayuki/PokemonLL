@@ -308,7 +308,7 @@ export function IvResearchPage() {
                         {CHECK_LEAGUES.map((league) => {
                           const ranks = checkRanks.get(`${member.key}:${league.cap}`);
                           const row = ranks?.find((item) => item.atkIv === atkIv && item.defIv === defIv && item.staIv === staIv);
-                          const before = row ? previousCp(member, row, stats, evolutions, levelScale.byLevel) : null;
+                          const before = row ? previousCp(member, row, entry, stats, evolutions, levelScale.byLevel) : null;
                           const upgrades = row && ranks ? strictUpgradeIvs(row, ranks) : [];
                           const belowFloor = atkIv < checkFloor || defIv < checkFloor || staIv < checkFloor;
                           return (
@@ -529,20 +529,41 @@ function DominateMark({ ivs }: { ivs: string[] }) {
 function previousCp(
   member: LineMember,
   row: RankingRow,
+  searched: PogoStatRecord,
   stats: PogoStatRecord[],
   evolutions: EvolutionData,
   byLevel: Map<string, number>,
 ) {
   const multiplier = byLevel.get(row.level.toFixed(1));
   if (multiplier === undefined) return null;
-  if (member.megaBase) {
+  const sameSpecies =
+    searched.pokemon_id === member.record.pokemon_id &&
+    searched.form === member.record.form &&
+    searched.base_attack === member.record.base_attack;
+  if (member.megaBase && sameSpecies) {
     return computeCp(member.megaBase, row.atkIv, row.defIv, row.staIv, multiplier);
   }
-  const parent = evolutions.parents[`${member.record.pokemon_id}:${member.record.form}`];
+  if (!member.megaBase && sameSpecies) {
+    return parentCp(searched, row, stats, evolutions, multiplier);
+  }
+  if (member.stage > 0 || member.megaBase) {
+    return computeCp(searched, row.atkIv, row.defIv, row.staIv, multiplier);
+  }
+  return null;
+}
+
+function parentCp(
+  record: PogoStatRecord,
+  row: RankingRow,
+  stats: PogoStatRecord[],
+  evolutions: EvolutionData,
+  multiplier: number,
+) {
+  const parent = evolutions.parents[`${record.pokemon_id}:${record.form}`];
   if (!parent) return null;
-  const record =
+  const base =
     stats.find((item) => item.pokemon_id === parent.pokemonId && item.form === parent.form) ??
     stats.find((item) => item.pokemon_id === parent.pokemonId);
-  if (!record) return null;
-  return computeCp(record, row.atkIv, row.defIv, row.staIv, multiplier);
+  if (!base) return null;
+  return computeCp(base, row.atkIv, row.defIv, row.staIv, multiplier);
 }
