@@ -72,7 +72,7 @@ export function InitialStatePopup({
               aria-pressed={state.initialOn}
               onClick={() => patch({ initialOn: !state.initialOn })}
             >
-              初期条件機能
+              {state.initialOn ? "初期条件 ON" : "初期条件 OFF"}
             </button>
           </div>
 
@@ -169,7 +169,16 @@ function BoundInput({
       autoComplete="off"
       aria-label={ariaLabel}
       value={text}
-      onFocus={() => setFocused(true)}
+      onPointerDown={(event) => {
+        if (document.activeElement === event.currentTarget) return;
+        event.currentTarget.value = "";
+        setFocused(true);
+        setText("");
+      }}
+      onFocus={() => {
+        setFocused(true);
+        setText("");
+      }}
       onBlur={() => {
         setFocused(false);
         if (text === "") setText(String(value));
