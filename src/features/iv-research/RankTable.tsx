@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatBattleStat, formatPlace, IV_FLOORS, type RankingRow } from "../../lib/pogo/research";
+import { formatBattleStat, formatPlace, formatScp, IV_FLOORS, type RankingRow } from "../../lib/pogo/research";
 
 const RANK_FILTERS = [
   { label: "100位以内", limit: 100 },
@@ -9,18 +9,19 @@ const RANK_FILTERS = [
   { label: "すべて", limit: null },
 ] as const;
 
-type SortKey = "rank" | "iv" | "attack" | "defense" | "stamina" | "level" | "cp";
+type SortKey = "rank" | "iv" | "cp" | "scp" | "attack" | "defense" | "stamina" | "level";
 type SortDir = "asc" | "desc" | null;
 type Bound = "ge" | "le";
 
-const COLUMNS: { key: SortKey; label: string }[] = [
+const COLUMNS: { key: SortKey; label: string; tight?: boolean }[] = [
   { key: "rank", label: "順位" },
-  { key: "iv", label: "IV" },
-  { key: "attack", label: "攻撃" },
-  { key: "defense", label: "防御" },
-  { key: "stamina", label: "HP" },
-  { key: "level", label: "Lv" },
+  { key: "iv", label: "IV", tight: true },
   { key: "cp", label: "CP" },
+  { key: "scp", label: "SCP" },
+  { key: "attack", label: "攻撃", tight: true },
+  { key: "defense", label: "防御", tight: true },
+  { key: "stamina", label: "HP", tight: true },
+  { key: "level", label: "Lv" },
 ];
 
 /** この幅なら攻撃・防御の小数第2位を足しても、列が詰まって見えない。 */
@@ -245,7 +246,12 @@ export function RankTable({
           const active = sortDir && sortKey === column.key;
           const mark = !active ? "" : sortDir === "desc" ? " ↓" : " ↑";
           return (
-            <button key={column.key} type="button" onClick={() => cycleSort(column.key)}>
+            <button
+              key={column.key}
+              type="button"
+              className={column.tight ? "is-tight" : undefined}
+              onClick={() => cycleSort(column.key)}
+            >
               {column.label}
               {mark}
             </button>
@@ -335,14 +341,15 @@ function RankCells({
   return (
     <>
       <span>{formatPlace(row.rank)}</span>
-      <span>
+      <span className="is-tight">
         {row.atkIv}/{row.defIv}/{row.staIv}
       </span>
-      <span>{formatBattleStat(row.attack, attackDigits)}</span>
-      <span>{formatBattleStat(row.defense, defenseDigits)}</span>
-      <span>{row.stamina}</span>
-      <span>{row.level.toFixed(1)}</span>
       <span>{row.cp}</span>
+      <span>{formatScp(row.statProduct)}</span>
+      <span className="is-tight">{formatBattleStat(row.attack, attackDigits)}</span>
+      <span className="is-tight">{formatBattleStat(row.defense, defenseDigits)}</span>
+      <span className="is-tight">{row.stamina}</span>
+      <span>{row.level.toFixed(1)}</span>
     </>
   );
 }
@@ -350,6 +357,9 @@ function RankCells({
 function compareRows(a: RankingRow, b: RankingRow, key: SortKey) {
   if (key === "iv") {
     return a.atkIv - b.atkIv || a.defIv - b.defIv || a.staIv - b.staIv;
+  }
+  if (key === "scp") {
+    return formatScp(a.statProduct) - formatScp(b.statProduct) || a.statProduct - b.statProduct;
   }
   return a[key] - b[key];
 }

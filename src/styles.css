@@ -2218,11 +2218,20 @@ select.input {
 
 .rank-grid {
   display: grid;
-  grid-template-columns: 3.6rem 4.15rem repeat(3, minmax(2.15rem, 1fr)) 2.3rem 2.6rem;
+  /* 順位 IV CP SCP 攻撃 防御 HP Lv */
+  grid-template-columns:
+    2.85rem
+    3.2rem
+    2.15rem
+    2.5rem
+    minmax(1.75rem, 1fr)
+    minmax(1.75rem, 1fr)
+    minmax(1.35rem, 0.65fr)
+    1.8rem;
   align-items: center;
-  column-gap: 0.4rem;
-  min-height: 2.35rem;
-  font-size: 0.82rem;
+  column-gap: 0.1rem;
+  min-height: 2.2rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -2231,21 +2240,55 @@ select.input {
   white-space: nowrap;
 }
 
+.rank-grid > .is-tight {
+  font-size: 0.66rem;
+}
+
 .rank-board:not(.is-wide) .rank-grid.is-atk-fine {
-  grid-template-columns: 3.15rem 3.55rem minmax(3.2rem, 1.25fr) minmax(2rem, 1fr) minmax(2rem, 0.9fr) 2.05rem 2.2rem;
+  grid-template-columns:
+    2.85rem
+    3.2rem
+    2.05rem
+    2.4rem
+    minmax(2.55rem, 1.3fr)
+    minmax(1.55rem, 0.75fr)
+    minmax(1.25rem, 0.5fr)
+    1.7rem;
 }
 
 .rank-board:not(.is-wide) .rank-grid.is-def-fine {
-  grid-template-columns: 3.15rem 3.55rem minmax(2rem, 1fr) minmax(3.2rem, 1.25fr) minmax(2rem, 0.9fr) 2.05rem 2.2rem;
+  grid-template-columns:
+    2.85rem
+    3.2rem
+    2.05rem
+    2.4rem
+    minmax(1.55rem, 0.75fr)
+    minmax(2.55rem, 1.3fr)
+    minmax(1.25rem, 0.5fr)
+    1.7rem;
+}
+
+.rank-board.is-wide .rank-grid {
+  grid-template-columns:
+    3rem
+    3.55rem
+    minmax(2.45rem, 0.75fr)
+    minmax(2.55rem, 0.75fr)
+    minmax(3.05rem, 1fr)
+    minmax(3.05rem, 1fr)
+    minmax(1.7rem, 0.65fr)
+    2.1rem;
+  column-gap: 0.32rem;
+  font-size: 0.82rem;
+}
+
+.rank-board.is-wide .rank-grid > .is-tight {
+  font-size: 0.72rem;
 }
 
 .rank-grid > :first-child {
   border-right: 1px solid var(--border);
-  padding-right: 0.35rem;
-}
-
-.rank-grid > :nth-child(2) {
-  text-align: center;
+  padding-right: 0.12rem;
 }
 
 .rank-head {
@@ -2256,13 +2299,14 @@ select.input {
 
 .rank-head button {
   width: 100%;
-  padding: 0.45rem 0;
+  padding: 0.4rem 0;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
   font-weight: 700;
   text-align: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
