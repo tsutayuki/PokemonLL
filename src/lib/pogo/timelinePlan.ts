@@ -298,14 +298,15 @@ export function fillLaggingSide(
 }
 
 export function planFromEvents(
-  events: { turn: number; actor: "a" | "b"; kind: "fast" | "charged"; moveId: string; actionId: number }[],
+  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number }[],
   actor: "a" | "b",
 ): TimelineStep[] {
   const steps: TimelineStep[] = [];
   const seen = new Set<number>();
-  const ordered = events.slice().sort((left, right) => left.turn - right.turn);
+  const ordered = events.slice().sort((left, right) => left.turn - right.turn || 0);
   for (const event of ordered) {
     if (event.actor !== actor || seen.has(event.actionId)) continue;
+    if (event.kind !== "fast" && event.kind !== "charged") continue;
     seen.add(event.actionId);
     if (event.kind === "charged") steps.push({ kind: "charged", moveId: event.moveId });
     else steps.push({ kind: "fast", moveId: event.moveId });
@@ -316,7 +317,7 @@ export function planFromEvents(
 /** いまの手順のうしろに、最適で続いた技を足す。手順が無いときは、対戦の技を全部手順にする。 */
 export function extendPlanFromTimeline(
   plan: TimelineStep[] | null,
-  events: { turn: number; actor: "a" | "b"; kind: "fast" | "charged"; moveId: string; actionId: number; scripted?: boolean }[],
+  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number; scripted?: boolean }[],
   actor: "a" | "b",
 ) {
   if (!plan) return planFromEvents(events, actor);

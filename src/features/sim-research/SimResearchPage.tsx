@@ -4,12 +4,15 @@ import { ArrowLeft, Pin } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { PokemonLabelFit } from "../../components/PokemonLabelFit";
+import { bladeFastMove, statsUnderCap } from "../../lib/pogo/battleTraits";
 import { damageForMove, type PvpMove } from "../../lib/pogo/combat";
 import { MEGA_LEVELS, readMegaLevel, scaleThirdAttack, type MegaLevel } from "../../lib/pogo/megaLevel";
 import { bestMoves } from "../../lib/pogo/moveScore";
+import { recordPokemonPick } from "../../lib/pogo/pokemonPicks";
 import { findPvpPokemon, resolveMoves } from "../../lib/pogo/pvpBundle";
 import {
   computeBestRankings,
+  computeDerivedStats,
   findMaxLevelBuild,
   formatBattleStat,
   formatScp,
@@ -39,6 +42,7 @@ import { extendPlanFromTimeline, fillLaggingSide, type TimelineStep } from "../.
 import { IvBars } from "../shared/IvBars";
 import { useResearchData } from "../shared/useResearchData";
 import { openPokemonSearch } from "../shared/pokemonSearchApi";
+import { FrequentPokemon } from "./FrequentPokemon";
 
 const SOZAI_SHADOW_SRC = "/Image/sozai/shadow.png";
 const SOZAI_SHIELD_SRC = "/Image/sozai/shield-ui.png";
@@ -274,15 +278,11 @@ export function SimResearchPage() {
 
   return (
     <div className="page-iv sim-page">
-      <div className="page-heading">
+      <div className="page-heading sim-heading">
         <a className="btn btn-secondary btn-back" href="#/">
           <ArrowLeft size={16} />
           ホーム
         </a>
-        <div>
-          <h1>バトルシミュレーション研究</h1>
-          <p className="page-lead">2匹を横に並べたまま、シールドと技のタイミングを変えます。名前を押すと検索して入れ替えられます。</p>
-        </div>
       </div>
 
       {error ? (
@@ -322,6 +322,20 @@ export function SimResearchPage() {
                 />
               ))}
           </div>
+
+          <FrequentPokemon
+            stats={data.stats}
+            onPick={(record, label, which) => {
+              const group: SpeciesGroup = {
+                name: `${record.pokemon_id}:${record.form}`,
+                pokemonId: record.pokemon_id,
+                entries: [record],
+                label,
+              };
+              recordPokemonPick(group.pokemonId, group.name);
+              changeSide(which, (current) => fillSideFromGroup(group, data, cpData.levels, cpData.byLevel, cap, current));
+            }}
+          />
 
           <div className="duel-grid">
             <FighterCard
@@ -381,6 +395,8 @@ export function SimResearchPage() {
                     side={sideA}
                     hp={result.hpA}
                     max={result.maxHpA}
+                    cp={fighterA.build.cp}
+                    scp={formatScp(fighterA.build.statProduct)}
                     attack={fighterA.build.attack}
                     defense={fighterA.build.defense}
                     stamina={fighterA.build.stamina}
@@ -392,6 +408,8 @@ export function SimResearchPage() {
                     side={sideB}
                     hp={result.hpB}
                     max={result.maxHpB}
+                    cp={fighterB.build.cp}
+                    scp={formatScp(fighterB.build.statProduct)}
                     attack={fighterB.build.attack}
                     defense={fighterB.build.defense}
                     stamina={fighterB.build.stamina}
@@ -719,7 +737,33 @@ function packFighter(
     timelinePlan: side.timelineMode === "custom" ? side.timelinePlan : null,
     shieldThrows: side.shieldMode === "custom" && shieldCustomActive ? side.shieldSlots : null,
     throwTweaks: side.throwTweaks,
+    speciesId: entry.pokemon_id,
+    form: entry.form,
   };
+  if (entry.pokemon_id === 681 && entry.form === "Shield") {
+    const blade = data.stats.find((row) => row.pokemon_id === 681 && row.form === "Blade");
+    const cpm = scale.byLevel.get(build.level.toFixed(1));
+    const bladeFast = bladeFastMove(data.bundle.moves, fast.id);
+    if (blade && cpm != null && bladeFast) {
+      const derived = computeDerivedStats(blade, side.atkIv, side.defIv, side.staIv, cpm);
+      input.aegislash = { bladeAttack: derived.attack, bladeDefense: derived.defense, bladeFast };
+    }
+  }
+  if (entry.pokemon_id === 774 && entry.form !== "Meteor") {
+    const meteor = data.stats.find((row) => row.pokemon_id === 774 && row.form === "Meteor");
+    if (meteor) {
+      const near = statsUnderCap(
+        meteor,
+        side.atkIv,
+        side.defIv,
+        side.staIv,
+        withBuddyLevels(cpData, true).byLevel,
+        cap,
+        55,
+      );
+      if (near) input.miniorMeteor = { attack: near.attack, defense: near.defense };
+    }
+  }
   if (side.initialOn) {
     const maxHp = build.stamina;
     const damage = Math.max(0, Math.min(maxHp, Math.floor(side.initialDamage)));
@@ -729,6 +773,41 @@ function packFighter(
     input.startDefenseStage = Math.max(-4, Math.min(4, Math.trunc(side.initialDefenseStage)));
   }
   return { name: side.label || entry.pokemon_name, pvp, build, fasts, chargedMoves, thirdMove: thirdBase, input };
+}
+
+function fillSideFromGroup(
+  group: SpeciesGroup,
+  data: NonNullable<ReturnType<typeof useResearchData>["data"]>,
+  levels: number[],
+  byLevel: Map<string, number>,
+  cap: number,
+  current: SideState,
+): SideState {
+  const entry = group.entries[0];
+  if (!entry) return current;
+  const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, entry.form);
+  const nextFasts = pvp ? resolveMoves(data.bundle, pvp.fast) : [];
+  const nextCharged = pvp ? resolveMoves(data.bundle, pvp.charged) : [];
+  const types = pvp?.types ?? [];
+  const rankedFast = bestMoves(nextFasts, types, "fast");
+  const rankedCharged = bestMoves(nextCharged, types, "charged");
+  const scale = levelScale({ levels, byLevel }, 51);
+  const best = computeBestRankings(entry, scale.levels, scale.byLevel, cap, 51)[0];
+  return {
+    ...current,
+    record: entry,
+    label: speciesDisplayName(group),
+    exactSprite: Boolean(group.exactSprite),
+    spriteSuffix: group.spriteSuffix ?? null,
+    fastId: rankedFast[0]?.id ?? "",
+    chargedId: rankedCharged[0]?.id ?? "",
+    chargedId2: rankedCharged[1]?.id ?? "",
+    megaLevel: 1,
+    maxLevel: 51,
+    atkIv: best?.atkIv ?? current.atkIv,
+    defIv: best?.defIv ?? current.defIv,
+    staIv: best?.staIv ?? current.staIv,
+  };
 }
 
 function FighterCard({
@@ -789,31 +868,7 @@ function FighterCard({
         className="identity-pick"
         onClick={() => {
           openPokemonSearch((group: SpeciesGroup) => {
-            const entry = group.entries[0];
-            if (!entry) return;
-            const pvp = findPvpPokemon(data.bundle, entry.pokemon_id, entry.form);
-            const nextFasts = pvp ? resolveMoves(data.bundle, pvp.fast) : [];
-            const nextCharged = pvp ? resolveMoves(data.bundle, pvp.charged) : [];
-            const types = pvp?.types ?? [];
-            const rankedFast = bestMoves(nextFasts, types, "fast");
-            const rankedCharged = bestMoves(nextCharged, types, "charged");
-            const scale = levelScale({ levels, byLevel }, 51);
-            const best = computeBestRankings(entry, scale.levels, scale.byLevel, cap, 51)[0];
-            onChange((current) => ({
-              ...current,
-              record: entry,
-              label: speciesDisplayName(group),
-              exactSprite: Boolean(group.exactSprite),
-              spriteSuffix: group.spriteSuffix ?? null,
-              fastId: rankedFast[0]?.id ?? "",
-              chargedId: rankedCharged[0]?.id ?? "",
-              chargedId2: rankedCharged[1]?.id ?? "",
-              megaLevel: 1,
-              maxLevel: 51,
-              atkIv: best?.atkIv ?? current.atkIv,
-              defIv: best?.defIv ?? current.defIv,
-              staIv: best?.staIv ?? current.staIv,
-            }));
+            onChange((current) => fillSideFromGroup(group, data, levels, byLevel, cap, current));
           });
         }}
       >
@@ -838,25 +893,7 @@ function FighterCard({
         )}
       </button>
 
-      {!side.record ? null : stats ? (
-        <>
-          <div className="sim-power-line">
-            <p className="sim-power-item">
-              <span>CP</span>
-              <strong className="sim-cp num">{stats.cp}</strong>
-            </p>
-            <p className="sim-power-item">
-              <span>SCP</span>
-              <strong className="sim-scp num">{formatScp(stats.statProduct)}</strong>
-            </p>
-          </div>
-          <p className="sim-battle-stats num" aria-label="実数値">
-            <span>{formatBattleStat(stats.attack, 2)}</span>
-            <span>{formatBattleStat(stats.defense, 2)}</span>
-            <span>{stats.stamina}</span>
-          </p>
-        </>
-      ) : side.record ? (
+      {!side.record ? null : stats ? null : side.record ? (
         <p className="note">このリーグのCP上限に入るレベルがありません。</p>
       ) : null}
 
@@ -872,47 +909,50 @@ function FighterCard({
         onChange={onChange}
       />
 
-      <label className="field">
-        <span className="field-label">ノーマルアタック</span>
-        <select className="input" value={fastValue} onChange={(event) => onChange({ ...side, fastId: event.target.value })}>
-          {fasts.map((move) => (
-            <option key={move.id} value={move.id}>
-              {move.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span className="field-label">スペシャルアタック</span>
-        <select className="input" value={chargedValue} onChange={(event) => onChange({ ...side, chargedId: event.target.value })}>
-          {chargedMoves.map((move) => (
-            <option key={move.id} value={move.id}>
-              {move.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span className="field-label">スペシャルアタック2</span>
-        <select className="input" value={charged2Value} onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}>
-          <option value="">なし</option>
-          {chargedMoves.map((move) => (
-            <option key={move.id} value={move.id}>
-              {move.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <select
+        className="input"
+        aria-label="ノーマルアタック"
+        value={fastValue}
+        onChange={(event) => onChange({ ...side, fastId: event.target.value })}
+      >
+        {fasts.map((move) => (
+          <option key={move.id} value={move.id}>
+            {move.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label="スペシャルアタック"
+        value={chargedValue}
+        onChange={(event) => onChange({ ...side, chargedId: event.target.value })}
+      >
+        {chargedMoves.map((move) => (
+          <option key={move.id} value={move.id}>
+            {move.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label="スペシャルアタック2"
+        value={charged2Value}
+        onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}
+      >
+        <option value="">なし</option>
+        {chargedMoves.map((move) => (
+          <option key={move.id} value={move.id}>
+            {move.name}
+          </option>
+        ))}
+      </select>
       {thirdMove ? (
         <div className="sim-third-row">
-          <label className="field">
-            <span className="field-label">サードアタック</span>
-            <span className="input sim-third-name">{thirdMove.name}</span>
-          </label>
+          <span className="input sim-third-name">{thirdMove.name}</span>
           <label className="field sim-mega-level">
-            <span className="field-label">メガレベル</span>
             <select
               className="input"
+              aria-label="メガレベル"
               value={side.megaLevel}
               onChange={(event) => onChange({ ...side, megaLevel: readMegaLevel(event.target.value) })}
             >
@@ -975,38 +1015,76 @@ type SheetCell = {
   cct: boolean;
   charged: boolean;
   throwIndex: number | null;
+  spriteId?: number;
+  spriteForm?: string;
 };
 
-type TurnRow = { turn: number; hpA: number; hpB: number; a: TimelineEvent | null; b: TimelineEvent | null };
+type TurnRow = {
+  key: string;
+  turn: number;
+  line: number;
+  hpA: number;
+  hpB: number;
+  a: TimelineEvent | null;
+  b: TimelineEvent | null;
+};
 
 function buildSheet(events: TimelineEvent[]) {
-  const turns: TurnRow[] = [];
+  const byTurn = new Map<number, TimelineEvent[]>();
   for (const event of events) {
-    let row = turns[turns.length - 1];
-    if (!row || row.turn !== event.turn) {
-      row = { turn: event.turn, hpA: event.hpA, hpB: event.hpB, a: null, b: null };
-      turns.push(row);
-    }
-    row.hpA = event.hpA;
-    row.hpB = event.hpB;
-    row[event.actor] = event;
+    const list = byTurn.get(event.turn) ?? [];
+    list.push(event);
+    byTurn.set(event.turn, list);
   }
 
-  const chargeTurns = new Set(
-    turns.filter((row) => row.a?.kind === "charged" || row.b?.kind === "charged").map((row) => row.turn),
+  const turns: TurnRow[] = [];
+  for (const [turn, list] of byTurn) {
+    const maxLine = Math.max(0, ...list.map((event) => event.line ?? 0));
+    const end = list[list.length - 1];
+    for (let line = 0; line <= maxLine; line += 1) {
+      const row: TurnRow = {
+        key: `${turn}-${line}`,
+        turn,
+        line,
+        hpA: end?.hpA ?? 0,
+        hpB: end?.hpB ?? 0,
+        a: null,
+        b: null,
+      };
+      for (const event of list) {
+        if ((event.line ?? 0) !== line) continue;
+        row[event.actor] = event;
+      }
+      if (line > 0) {
+        for (const actor of ["a", "b"] as const) {
+          if (row[actor]) continue;
+          const carried = list.find((event) => event.actor === actor && (event.line ?? 0) === 0 && event.kind === "fast");
+          if (carried) row[actor] = carried;
+        }
+      }
+      turns.push(row);
+    }
+  }
+
+  const chargeKeys = new Set(
+    turns
+      .filter((row) => row.a?.kind === "charged" || row.b?.kind === "charged" || row.a?.chargeLine || row.b?.chargeLine)
+      .map((row) => row.key),
   );
-  const cellsA = moveSegments(turns, "a", chargeTurns);
-  const cellsB = moveSegments(turns, "b", chargeTurns);
+  const cellsA = moveSegments(turns, "a", chargeKeys);
+  const cellsB = moveSegments(turns, "b", chargeKeys);
 
   return turns.map((row) => ({
+    key: row.key,
     turn: row.turn,
+    line: row.line,
     hpA: row.hpA,
     hpB: row.hpB,
-    charge: chargeTurns.has(row.turn),
+    charge: chargeKeys.has(row.key),
     guardA: receivedShield(row, "a"),
     guardB: receivedShield(row, "b"),
-    a: cellsA.get(row.turn) ?? null,
-    b: cellsB.get(row.turn) ?? null,
+    a: cellsA.get(row.key) ?? null,
+    b: cellsB.get(row.key) ?? null,
   }));
 }
 
@@ -1015,39 +1093,41 @@ function receivedShield(row: TurnRow, actor: "a" | "b") {
   return Boolean(other?.kind === "charged" && other.shielded);
 }
 
-function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<number>) {
-  const cells = new Map<number, SheetCell | null>();
+function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeKeys: Set<string>) {
+  const cells = new Map<string, SheetCell | null>();
   let index = 0;
   while (index < turns.length) {
     const event = turns[index][actor];
     if (!event) {
-      cells.set(turns[index].turn, null);
+      cells.set(turns[index].key, null);
       index += 1;
       continue;
     }
 
     const startedEarlier = index > 0 && turns[index - 1][actor]?.actionId === event.actionId;
-    if (startedEarlier && receivedShield(turns[index], actor) && event.kind === "fast") {
-      cells.set(turns[index].turn, {
+    if (event.kind === "note" || (startedEarlier && receivedShield(turns[index], actor) && event.kind === "fast")) {
+      cells.set(turns[index].key, {
         show: true,
         span: 1,
-        name: "",
-        type: "",
-        damage: 0,
+        name: event.kind === "note" ? event.moveName : "",
+        type: event.moveType,
+        damage: event.kind === "note" ? event.damage : 0,
         shielded: false,
-        endsCharge: chargeTurns.has(turns[index].turn),
+        endsCharge: chargeKeys.has(turns[index].key),
         cct: false,
         charged: false,
         throwIndex: null,
+        spriteId: event.spriteId,
+        spriteForm: event.spriteForm,
       });
       index += 1;
       continue;
     }
 
     let end = index;
-    while (end < turns.length && turns[end][actor]?.actionId === event.actionId) {
+    while (end < turns.length && turns[end][actor]?.actionId === event.actionId && turns[end][actor]?.kind !== "note") {
       if (end > index && receivedShield(turns[end], actor)) break;
-      const splitAfter = chargeTurns.has(turns[end].turn);
+      const splitAfter = chargeKeys.has(turns[end].key);
       end += 1;
       if (splitAfter) break;
     }
@@ -1056,8 +1136,8 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<numbe
     let landing = [...slice].reverse().find((row) => (row[actor]?.damage ?? 0) > 0)?.[actor];
     const following = turns[end]?.[actor];
     if (!landing && following?.actionId === event.actionId && (following.damage ?? 0) > 0) landing = following;
-    const endsCharge = chargeTurns.has(turns[end - 1].turn);
-    cells.set(turns[index].turn, {
+    const endsCharge = chargeKeys.has(turns[end - 1].key);
+    cells.set(turns[index].key, {
       show: true,
       span: end - index,
       name: event.moveName,
@@ -1070,7 +1150,7 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeTurns: Set<numbe
       throwIndex: event.throwIndex,
     });
     for (let cursor = index + 1; cursor < end; cursor += 1) {
-      cells.set(turns[cursor].turn, {
+      cells.set(turns[cursor].key, {
         show: false,
         span: 0,
         name: "",
@@ -1108,11 +1188,12 @@ function BattleSheet({
       <tbody>
         {rows.map((row, index) => {
           const prev = rows[index - 1];
+          const sameTurn = prev?.turn === row.turn;
           return (
-            <tr key={row.turn} className={row.charge ? "has-charge" : undefined}>
+            <tr key={row.key} className={row.charge ? "has-charge" : undefined}>
               <td className="hp num">{!prev || prev.hpA !== row.hpA ? row.hpA : ""}</td>
               <MoveCell cell={row.a} guard={row.guardA} onCharged={(throwIndex) => onCharged("a", throwIndex)} />
-              <td className="turn num">{row.turn}</td>
+              <td className="turn num">{sameTurn ? "" : row.turn}</td>
               <MoveCell cell={row.b} guard={row.guardB} onCharged={(throwIndex) => onCharged("b", throwIndex)} />
               <td className="hp num">{!prev || prev.hpB !== row.hpB ? row.hpB : ""}</td>
             </tr>
@@ -1162,6 +1243,9 @@ function MoveCell({
         <span className="move-name">{cell.name}</span>
       ) : null}
       {cell.damage > 0 ? <span className="num move-dmg">{cell.damage}</span> : null}
+      {cell.spriteId ? (
+        <PokemonDotSprite pokemonId={cell.spriteId} form={cell.spriteForm} alt="" size={22} />
+      ) : null}
     </span>
   );
   return (
@@ -1236,6 +1320,8 @@ function MatchupSide({
   side,
   hp,
   max,
+  cp,
+  scp,
   attack,
   defense,
   stamina,
@@ -1246,6 +1332,8 @@ function MatchupSide({
   side: SideState;
   hp: number;
   max: number;
+  cp: number;
+  scp: number;
   attack: number;
   defense: number;
   stamina: number;
@@ -1259,6 +1347,9 @@ function MatchupSide({
   return (
     <div className="sim-matchup-side">
       <p className={word === "WIN" ? "sim-win" : word === "LOSE" ? "sim-lose" : "sim-draw"}>{word ?? "相打ち"}</p>
+      <p className="sim-cp-line num">
+        CP：{cp}　SCP：{scp}
+      </p>
       <div className="sim-mon-block">
         {side.record ? (
           <PokemonDotSprite
@@ -1285,11 +1376,11 @@ function MatchupSide({
           </div>
         </dl>
       </div>
-      <p className="sim-hp-now num">
-        {hp} / {max}
-      </p>
       <div className={`hp-track is-${band}`}>
         <i style={{ width: `${Math.max(0, Math.min(100, ratio * 100))}%` }} />
+        <span className="sim-hp-inbar num">
+          {hp} / {max}
+        </span>
       </div>
       <p className="sim-gauge">ゲージ：{energy}</p>
       <ul className={`sim-hit-list${regular.length ? "" : " is-empty"}`} aria-label={regular.length ? "技ダメージ" : undefined}>

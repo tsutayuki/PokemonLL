@@ -1,0 +1,123 @@
+import { useEffect, useRef, useState } from "react";
+import { PokemonDotSprite } from "../../components/PokemonDotSprite";
+import { usePokemonPicks } from "../../lib/pogo/pokemonPicks";
+import { getPokemonDisplayName, type PogoStatRecord } from "../../lib/pogo/research";
+
+const FAVORITES: { id: number; form: string; label: string }[] = [
+  { id: 809, form: "Normal", label: "メルメタル" },
+  { id: 38, form: "Normal", label: "キュウコン" },
+  { id: 334, form: "Normal", label: "チルタリス" },
+  { id: 959, form: "Normal", label: "デカヌチャン" },
+  { id: 222, form: "Galarian", label: "サニーゴ(ガラル)" },
+  { id: 823, form: "Normal", label: "アーマーガァ" },
+  { id: 671, form: "Red", label: "フラージェス" },
+  { id: 195, form: "Normal", label: "ヌオー" },
+  { id: 302, form: "Normal", label: "ヤミラミ" },
+  { id: 101, form: "Hisuian", label: "マルマイン(ヒスイ)" },
+  { id: 395, form: "Normal", label: "エンペルト" },
+  { id: 845, form: "Normal", label: "ウッウ" },
+  { id: 184, form: "Normal", label: "マリルリ" },
+  { id: 980, form: "Normal", label: "ドオー" },
+  { id: 778, form: "Disguised", label: "ミミッキュ" },
+  { id: 230, form: "Normal", label: "キングドラ" },
+  { id: 828, form: "Normal", label: "フォクスライ" },
+  { id: 618, form: "Galarian", label: "マッギョ" },
+  { id: 901, form: "Normal", label: "ガチグマ" },
+  { id: 752, form: "Normal", label: "オニシズクモ" },
+];
+
+type Mon = { key: string; record: PogoStatRecord; label: string };
+
+function findRecord(stats: PogoStatRecord[], id: number, form: string) {
+  return stats.find((row) => row.pokemon_id === id && row.form === form) ?? null;
+}
+
+function recentMon(stats: PogoStatRecord[], key: string): Mon | null {
+  const split = key.indexOf(":");
+  if (split <= 0) return null;
+  const id = Number(key.slice(0, split));
+  const form = key.slice(split + 1);
+  if (!Number.isFinite(id) || !form || form.includes(":")) return null;
+  const record = findRecord(stats, id, form);
+  if (!record) return null;
+  return { key: `${id}:${form}`, record, label: getPokemonDisplayName(id, record.pokemon_name) };
+}
+
+export function FrequentPokemon({
+  stats,
+  onPick,
+}: {
+  stats: PogoStatRecord[];
+  onPick: (record: PogoStatRecord, label: string, side: "a" | "b") => void;
+}) {
+  const { recent } = usePokemonPicks();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(8);
+  const [pending, setPending] = useState<Mon | null>(null);
+
+  useEffect(() => {
+    const node = boxRef.current;
+    if (!node) return;
+    const apply = () => setCols(Math.max(1, Math.floor((node.clientWidth + 2) / 42)));
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const recentMons = recent.map((key) => recentMon(stats, key)).filter((mon): mon is Mon => Boolean(mon));
+  const recentIds = new Set(recentMons.map((mon) => mon.record.pokemon_id));
+  const catalog = FAVORITES.flatMap((item) => {
+    if (recentIds.has(item.id)) return [];
+    const record = findRecord(stats, item.id, item.form);
+    if (!record) return [];
+    return [{ key: `${item.id}:${item.form}`, record, label: item.label }];
+  });
+  const row2 = catalog.slice(0, cols);
+  const row3 = catalog.slice(cols);
+
+  const choose = (side: "a" | "b") => {
+    if (!pending) return;
+    onPick(pending.record, pending.label, side);
+    setPending(null);
+  };
+
+  return (
+    <div className="freq-box" ref={boxRef}>
+      <FreqRow mons={recentMons} onPick={setPending} />
+      {row2.length ? <FreqRow mons={row2} onPick={setPending} /> : null}
+      {row3.length ? <FreqRow mons={row3} onPick={setPending} /> : null}
+      {pending ? (
+        <>
+          <button type="button" className="freq-cancel" aria-label="選択を閉じる" onClick={() => setPending(null)} />
+          <div className="freq-choose" role="group" aria-label={`${pending.label}をどちらに入れるか`}>
+            <button type="button" className="freq-side is-left" onClick={() => choose("a")}>
+              <span className="freq-arrow" aria-hidden="true">
+                ◀
+              </span>
+              <span>左に追加</span>
+            </button>
+            <button type="button" className="freq-side is-right" onClick={() => choose("b")}>
+              <span className="freq-arrow" aria-hidden="true">
+                ▶
+              </span>
+              <span>右に追加</span>
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function FreqRow({ mons, onPick }: { mons: Mon[]; onPick: (mon: Mon) => void }) {
+  return (
+    <div className="freq-row">
+      {mons.map((mon) => (
+        <button key={mon.key} type="button" className="freq-mon" aria-label={mon.label} onClick={() => onPick(mon)}>
+          <PokemonDotSprite pokemonId={mon.record.pokemon_id} form={mon.record.form} alt="" size={40} />
+        </button>
+      ))}
+    </div>
+  );
+}
