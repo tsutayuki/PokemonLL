@@ -719,7 +719,7 @@ function packFighter(
   const fast = fasts.find((move) => move.id === side.fastId) ?? fasts[0];
   if (!fast) return null;
   const thirdBase = pvp.third ? (data.bundle.moves[pvp.third] ?? null) : null;
-  const charged = [side.chargedId, side.chargedId2]
+  const charged = (entry.pokemon_id === 235 ? [side.chargedId] : [side.chargedId, side.chargedId2])
     .map((id) => chargedMoves.find((move) => move.id === id) ?? null)
     .filter((move): move is PvpMove => Boolean(move))
     .map((move) => (thirdBase && move.id === thirdBase.id ? scaleThirdAttack(thirdBase, side.megaLevel) : move));
@@ -817,7 +817,7 @@ function fillSideFromGroup(
     spriteSuffix: group.spriteSuffix ?? null,
     fastId: rankedFast[0]?.id ?? "",
     chargedId: rankedCharged[0]?.id ?? "",
-    chargedId2: rankedCharged[1]?.id ?? "",
+    chargedId2: entry.pokemon_id === 235 ? "" : (rankedCharged[1]?.id ?? ""),
     megaLevel: 1,
     maxLevel: 51,
     atkIv: best?.atkIv ?? current.atkIv,
@@ -850,7 +850,12 @@ function FighterCard({
   const chargedMoves = packed?.chargedMoves ?? [];
   const fastValue = fasts.some((move) => move.id === side.fastId) ? side.fastId : (fasts[0]?.id ?? "");
   const chargedValue = chargedMoves.some((move) => move.id === side.chargedId) ? side.chargedId : (chargedMoves[0]?.id ?? "");
-  const charged2Value = chargedMoves.some((move) => move.id === side.chargedId2) ? side.chargedId2 : "";
+  const singleCharged = side.record?.pokemon_id === 235;
+  const charged2Value = singleCharged
+    ? ""
+    : chargedMoves.some((move) => move.id === side.chargedId2)
+      ? side.chargedId2
+      : "";
   const thirdMove = packed?.thirdMove ?? null;
   const stats = packed?.build;
   const types = packed?.pvp.types ?? [];
@@ -949,19 +954,25 @@ function FighterCard({
           </option>
         ))}
       </select>
-      <select
-        className="input"
-        aria-label="スペシャルアタック2"
-        value={charged2Value}
-        onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}
-      >
-        <option value="">なし</option>
-        {chargedMoves.map((move) => (
-          <option key={move.id} value={move.id}>
-            {move.name}
-          </option>
-        ))}
-      </select>
+      {singleCharged ? (
+        <select className="input" aria-label="スペシャルアタック2" value="" disabled>
+          <option value="">-</option>
+        </select>
+      ) : (
+        <select
+          className="input"
+          aria-label="スペシャルアタック2"
+          value={charged2Value}
+          onChange={(event) => onChange({ ...side, chargedId2: event.target.value })}
+        >
+          <option value="">なし</option>
+          {chargedMoves.map((move) => (
+            <option key={move.id} value={move.id}>
+              {move.name}
+            </option>
+          ))}
+        </select>
+      )}
       {thirdMove ? (
         <div className="sim-third-row">
           <span className="input sim-third-name">{thirdMove.name}</span>

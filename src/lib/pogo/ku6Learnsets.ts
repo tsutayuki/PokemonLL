@@ -90,34 +90,40 @@ export function applyKu6Learnsets(bundle: PvpBundle, catalog: SheetCatalog, stat
 
 const SMEARGLE_ID = 235;
 
-function isPlusMove(id: string, name: string) {
-  return id.endsWith("_PLUS") || name.endsWith("+");
-}
+/** ノーマルアタックはロックオンだけ。スペシャルはほうこうレポートの当たり技リスト順。 */
+const SMEARGLE_FAST = ["LOCK_ON"];
+const SMEARGLE_CHARGED = [
+  "FLYING_PRESS",
+  "ROCK_WRECKER",
+  "BLAST_BURN",
+  "FRENZY_PLANT",
+  "TECHNO_BLAST_SHOCK",
+  "PSYSTRIKE",
+  "AVALANCHE",
+  "V_CREATE",
+  "BRAVE_BIRD",
+  "AEROBLAST",
+  "TECHNO_BLAST_NORMAL",
+  "TECHNO_BLAST_DOUSE",
+  "TECHNO_BLAST_BURN",
+  "TECHNO_BLAST_CHILL",
+  "ORIGIN_PULSE",
+  "PRECIPICE_BLADES",
+  "LEAF_BLADE",
+  "BOOMBURST",
+  "WILD_CHARGE",
+  "ROCK_TOMB",
+  "GLACIATE",
+  "LUNGE",
+  "SANDSEAR_STORM",
+  "WILDBOLT_STORM",
+  "BLEAKWIND_STORM",
+];
 
-/** ギルガルドのチャージ用と、ウッウのミサイル本体。覚える技ではない。 */
-function isMechanicMove(id: string) {
-  return id.startsWith("AEGISLASH_CHARGE_") || id.startsWith("GULP_MISSILE_");
-}
-
-/**
- * ドーブルは、＋技以外のノーマルアタックとスペシャルアタックをすべて覚える。
- * 表の「たいあたり」「わるあがき」だけ、には戻さない。
- */
+/** ドーブルはロックオンと、当たり技リストのスペシャルアタックだけを覚える。 */
 export function applySmeargleLearnset(bundle: PvpBundle): PvpBundle {
-  const fast: string[] = [];
-  const charged: string[] = [];
-  for (const move of Object.values(bundle.moves)) {
-    if (isPlusMove(move.id, move.name) || isMechanicMove(move.id)) continue;
-    if (move.kind === "fast") fast.push(move.id);
-    else charged.push(move.id);
-  }
-  const byName = (a: string, b: string) => {
-    const name = (bundle.moves[a]?.name ?? a).localeCompare(bundle.moves[b]?.name ?? b, "ja");
-    return name || a.localeCompare(b);
-  };
-  fast.sort(byName);
-  charged.sort(byName);
-
+  const fast = SMEARGLE_FAST.filter((id) => bundle.moves[id]?.kind === "fast");
+  const charged = SMEARGLE_CHARGED.filter((id) => bundle.moves[id]?.kind === "charged");
   let changed = false;
   const pokemon = bundle.pokemon.map((entry) => {
     if (entry.pokemonId !== SMEARGLE_ID) return entry;
