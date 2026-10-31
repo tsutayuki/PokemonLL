@@ -50,7 +50,7 @@ const LITTLE: Favorite[] = [
   { id: 360, form: "Normal", label: "ソーナノ" },
   { id: 37, form: "Normal", label: "ロコン" },
   { id: 163, form: "Normal", label: "ホーホー" },
-  { id: 263, form: "Normal", label: "ジグザグマ" },
+  { id: 263, form: "Galarian", label: "ジグザグマ(ガラル)" },
   { id: 859, form: "Normal", label: "ベロバー" },
   { id: 183, form: "Normal", label: "マリル" },
   { id: 235, form: "Normal", label: "ドーブル" },
