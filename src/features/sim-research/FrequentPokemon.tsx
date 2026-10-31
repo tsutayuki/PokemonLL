@@ -51,7 +51,7 @@ const LITTLE: Favorite[] = [
   { id: 37, form: "Normal", label: "ロコン" },
   { id: 163, form: "Normal", label: "ホーホー" },
   { id: 263, form: "Normal", label: "ジグザグマ" },
-  { id: 453, form: "Normal", label: "ベロバー" },
+  { id: 859, form: "Normal", label: "ベロバー" },
   { id: 183, form: "Normal", label: "マリル" },
   { id: 235, form: "Normal", label: "ドーブル" },
   { id: 213, form: "Normal", label: "ツボツボ" },
@@ -73,7 +73,7 @@ const ULTRA: Favorite[] = [
     mega: { attack: 208, defense: 222, stamina: 200, spriteSuffix: 1 },
   },
   { id: 671, form: "Red", label: "フラージェス" },
-  { id: 324, form: "Normal", label: "バクガメス" },
+  { id: 776, form: "Normal", label: "バクガメス" },
   { id: 537, form: "Normal", label: "ガマゲロゲ" },
   { id: 229, form: "Normal", label: "ヘルガー" },
   { id: 160, form: "Normal", label: "オーダイル" },
@@ -205,7 +205,7 @@ export function FrequentPokemon({
     sprite?: { exactSprite?: boolean; spriteSuffix?: number | null },
   ) => void;
 }) {
-  const { recent } = usePokemonPicks();
+  const { recent } = usePokemonPicks(league);
   const boxRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState({ size: 40, columns: 9 });
   const [pending, setPending] = useState<Mon | null>(null);

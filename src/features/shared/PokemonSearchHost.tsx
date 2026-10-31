@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildSearchGroups, type EvolutionData } from "../../lib/pogo/evolutionLine";
 import { type PogoStatRecord, type SpeciesGroup } from "../../lib/pogo/research";
-import { recordPokemonPick, refreshGlobalCounts, usePokemonPicks } from "../../lib/pogo/pokemonPicks";
+import { recordPokemonPick, refreshGlobalCounts, useActivePickLeague, usePokemonPicks } from "../../lib/pogo/pokemonPicks";
 import { PokemonSearchDialog } from "./PokemonSearchDialog";
 import { bindPokemonSearch } from "./pokemonSearchApi";
 
@@ -9,7 +9,8 @@ export function PokemonSearchHost() {
   const [groups, setGroups] = useState<SpeciesGroup[]>([]);
   const [open, setOpen] = useState(false);
   const onSelectRef = useRef<(group: SpeciesGroup) => void>(() => undefined);
-  const { counts } = usePokemonPicks();
+  const league = useActivePickLeague();
+  const { counts } = usePokemonPicks(league);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +42,7 @@ export function PokemonSearchHost() {
       counts={counts}
       onClose={() => setOpen(false)}
       onSelect={(group) => {
-        recordPokemonPick(group.pokemonId, group.name);
+        recordPokemonPick(group.pokemonId, group.name, league);
         onSelectRef.current(group);
         setOpen(false);
       }}
