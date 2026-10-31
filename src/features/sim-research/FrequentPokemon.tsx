@@ -28,8 +28,31 @@ const FAVORITES: { id: number; form: string; label: string }[] = [
 ];
 
 const FAVORITE_IDS = new Set(FAVORITES.map((item) => item.id));
-const PER_ROW = 9;
-const ICON_MAX = 72;
+const GAP = 2;
+const MAX_ICON = 58;
+const MAX_ROWS = 3;
+const FAVORITE_ROWS = 2;
+
+/**
+ * 狭いときは1行9匹。幅が広がると 10、12、14、20匹へ増やす。
+ * 絵は枠いっぱいに大きくするが 58px で止める。登録20匹が1行に収まる広さでは20匹。
+ */
+export function frequentBarLayout(inner: number) {
+  const width = Math.max(0, inner);
+  const sizeFor = (columns: number) => Math.floor((width - GAP * (columns - 1)) / columns);
+  const steps = [
+    { columns: 9, minSize: 1 },
+    { columns: 10, minSize: 40 },
+    { columns: 12, minSize: 44 },
+    { columns: 14, minSize: 48 },
+    { columns: 20, minSize: 46 },
+  ];
+  let columns = 9;
+  for (const step of steps) {
+    if (sizeFor(step.columns) >= step.minSize) columns = step.columns;
+  }
+  return { columns, size: Math.max(1, Math.min(MAX_ICON, sizeFor(columns))) };
+}
 
 type Mon = { key: string; record: PogoStatRecord; label: string };
 
@@ -57,22 +80,24 @@ export function FrequentPokemon({
 }) {
   const { recent } = usePokemonPicks();
   const boxRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState(40);
+  const [layout, setLayout] = useState({ size: 40, columns: 9 });
   const [pending, setPending] = useState<Mon | null>(null);
 
   const recentMons = recent
     .map((key) => recentMon(stats, key))
     .filter((mon): mon is Mon => Boolean(mon))
     .filter((mon) => !FAVORITE_IDS.has(mon.record.pokemon_id))
-    .slice(0, PER_ROW);
+    .slice(0, layout.columns);
   const catalog = FAVORITES.flatMap((item) => {
     const record = findRecord(stats, item.id, item.form);
     if (!record) return [];
     return [{ key: `${item.id}:${item.form}`, record, label: item.label }];
   });
+  const favoriteLimit = layout.columns * Math.min(FAVORITE_ROWS, MAX_ROWS - (recentMons.length ? 1 : 0));
   const favoriteRows: Mon[][] = [];
-  for (let index = 0; index < catalog.length; index += PER_ROW) {
-    favoriteRows.push(catalog.slice(index, index + PER_ROW));
+  const shownFavorites = catalog.slice(0, favoriteLimit);
+  for (let index = 0; index < shownFavorites.length; index += layout.columns) {
+    favoriteRows.push(shownFavorites.slice(index, index + layout.columns));
   }
 
   useEffect(() => {
@@ -82,9 +107,7 @@ export function FrequentPokemon({
       const style = getComputedStyle(node);
       const pad = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
       const inner = Math.max(0, node.clientWidth - pad);
-      const gap = 2;
-      const next = Math.floor((inner - gap * (PER_ROW - 1)) / PER_ROW);
-      setSize(Math.max(1, Math.min(ICON_MAX, next)));
+      setLayout(frequentBarLayout(inner));
     };
     apply();
     const observer = new ResizeObserver(apply);
@@ -100,9 +123,9 @@ export function FrequentPokemon({
 
   return (
     <div className={`panel freq-box${pending ? " is-picking" : ""}`} ref={boxRef}>
-      {recentMons.length ? <FreqRow mons={recentMons} size={size} onPick={setPending} /> : null}
+      {recentMons.length ? <FreqRow mons={recentMons} size={layout.size} onPick={setPending} /> : null}
       {favoriteRows.map((row) => (
-        <FreqRow key={row[0]?.key ?? "row"} mons={row} size={size} onPick={setPending} />
+        <FreqRow key={row[0]?.key ?? "row"} mons={row} size={layout.size} onPick={setPending} />
       ))}
       {pending
         ? createPortal(
