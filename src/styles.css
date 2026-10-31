@@ -848,28 +848,33 @@ select.input {
 
 .freq-box {
   position: relative;
-  display: grid;
   gap: 2px;
   min-width: 0;
+  padding: 0.4rem 0.45rem;
+  overflow: hidden;
+}
+
+.freq-box.is-picking {
+  z-index: 70;
+  overflow: visible;
 }
 
 .freq-row {
   display: flex;
   flex-wrap: nowrap;
   gap: 2px;
-  min-height: 40px;
-  overflow-x: auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .freq-mon {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
+  line-height: 0;
 }
 
 .freq-mon:focus-visible {
@@ -878,6 +883,17 @@ select.input {
 }
 
 .freq-cancel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.freq-margin {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -1505,6 +1521,44 @@ select.input {
 
 .timeline-stack > .timeline-ops {
   margin: 0;
+}
+
+.battle-sheet tr.has-follow > td.move:not(.ends-charge) {
+  border-bottom-width: 0;
+  border-bottom-color: transparent;
+}
+
+.battle-sheet tr.is-follow > td.move {
+  border-top-width: 0;
+  border-top-color: transparent;
+}
+
+.battle-sheet tr.has-charge-end > td,
+.battle-sheet tr.has-charge-span > td.hp,
+.battle-sheet tr.has-charge-span > td.turn {
+  border-bottom-width: 2px;
+  border-bottom-color: rgba(28, 44, 58, 0.62);
+}
+
+.battle-sheet .move-label:has(.is-extra) {
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.battle-sheet .move-disguise {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.22rem;
+  color: #3a2a4a;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.battle-sheet .move-line-main.is-extra {
+  margin-top: 0.08rem;
 }
 
 .battle-sheet tr.has-charge > td,

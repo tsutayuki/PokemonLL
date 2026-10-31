@@ -60,8 +60,10 @@ export type FighterInput = {
   form?: string;
   /** シールドフォルムを選んだギルガルドだけ。ブレードの実数値と、戻したあとのノーマルアタック。 */
   aegislash?: { bladeAttack: number; bladeDefense: number; bladeFast: PvpMove } | null;
-  /** コアを選んだメテノだけ。流星の姿の攻撃と防御。HPはコアのまま。 */
+  /** コアを選んだメテノ。流星の姿の攻撃と防御。HPはコアのまま。 */
   miniorMeteor?: { attack: number; defense: number } | null;
+  /** 流星の姿を選んだメテノ。半分を下回ったあとのコアの攻撃と防御。 */
+  miniorCore?: { attack: number; defense: number } | null;
 };
 
 export type SwitchPlan = {
@@ -79,6 +81,7 @@ export type SwitchPlan = {
     form?: string;
     aegislash?: FighterInput["aegislash"];
     miniorMeteor?: FighterInput["miniorMeteor"];
+    miniorCore?: FighterInput["miniorCore"];
   };
 };
 
@@ -108,6 +111,8 @@ export type TimelineEvent = {
   chargeLine?: boolean;
   spriteId?: number;
   spriteForm?: string;
+  /** このスペシャルを、相手が化けの皮で受けた。 */
+  disguise?: boolean;
 };
 
 export type SimResult = {
@@ -356,17 +361,23 @@ function initTraits(fighter: FighterState, input: FighterInput, mimicBusted: boo
     fighter.aegisBladeFast = input.aegislash.bladeFast;
     fighter.fast = AEGIS_CHARGE_MOVE;
   }
-  if (fighter.speciesId === 774 && fighter.formName !== "Meteor" && input.miniorMeteor) {
-    fighter.miniorCoreAttack = input.attack;
-    fighter.miniorCoreDefense = input.defense;
-    fighter.miniorMeteorAttack = input.miniorMeteor.attack;
-    fighter.miniorMeteorDefense = input.miniorMeteor.defense;
+  if (fighter.speciesId === 774 && (input.miniorMeteor || input.miniorCore)) {
+    const meteorAttack = input.miniorMeteor?.attack ?? input.attack;
+    const meteorDefense = input.miniorMeteor?.defense ?? input.defense;
+    const coreAttack = input.miniorCore?.attack ?? input.attack;
+    const coreDefense = input.miniorCore?.defense ?? input.defense;
+    fighter.miniorCoreAttack = coreAttack;
+    fighter.miniorCoreDefense = coreDefense;
+    fighter.miniorMeteorAttack = meteorAttack;
+    fighter.miniorMeteorDefense = meteorDefense;
     if (!belowHalf(fighter.hp, fighter.maxHp)) {
       fighter.minior = "meteor";
-      fighter.attack = input.miniorMeteor.attack;
-      fighter.defense = input.miniorMeteor.defense;
+      fighter.attack = meteorAttack;
+      fighter.defense = meteorDefense;
     } else {
       fighter.minior = "core";
+      fighter.attack = coreAttack;
+      fighter.defense = coreDefense;
     }
   }
 }
@@ -434,6 +445,7 @@ function applySwitch(fighter: FighterState, next: SwitchPlan["next"], mimicBuste
       form: next.form,
       aegislash: next.aegislash,
       miniorMeteor: next.miniorMeteor,
+      miniorCore: next.miniorCore,
     },
     mimicBusted,
   );
@@ -645,9 +657,9 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
     }
 
     const occupied = [a, b].map((fighter) => ({ fighter, action: fighter.action }));
-    const dealt: Record<FighterId, { damage: number; shielded: boolean; throwIndex: number | null }> = {
-      a: { damage: 0, shielded: false, throwIndex: null },
-      b: { damage: 0, shielded: false, throwIndex: null },
+    const dealt: Record<FighterId, { damage: number; shielded: boolean; throwIndex: number | null; disguise: boolean }> = {
+      a: { damage: 0, shielded: false, throwIndex: null, disguise: false },
+      b: { damage: 0, shielded: false, throwIndex: null, disguise: false },
     };
     const moveLine: Record<FighterId, number> = { a: 0, b: 0 };
     const shownType: Record<FighterId, string> = { a: "", b: "" };
@@ -701,6 +713,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       if (isAuraWheel(action.move) && self.speciesId === 877) shownType[self.id] = auraWheelType(self.firedSpecials);
       let damage = 0;
       let shielded = false;
+      let disguise = false;
       if (wantsShield(other)) {
         other.shieldsLeft -= 1;
         damage = 1;
@@ -708,11 +721,10 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         if (other.aegis === "blade") enterShield(other);
       } else if (other.disguiseReady) {
         damage = 1;
+        disguise = true;
         other.disguiseReady = false;
         mimikyuBusted = true;
         other.defenseStage = clampStage(other.defenseStage - 1);
-        notes.push({ actor: other.id, line: 0, name: "ばけのかわ", damage: 0, chargeLine: false });
-        moveLine[self.id] = Math.max(moveLine[self.id], 1);
       } else {
         damage = damageOf(self, other, action.move);
         if (tweak) {
@@ -752,7 +764,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         other.gulp = null;
         notes.push({
           actor: other.id,
-          line: noteLine(other.id, 1),
+          line: 0,
           name: "うのミサイル",
           damage: missile,
           chargeLine: false,
@@ -761,7 +773,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       }
       self.firedSpecials += 1;
       markShell(other);
-      dealt[self.id] = { damage, shielded, throwIndex };
+      dealt[self.id] = { damage, shielded, throwIndex, disguise };
       resolved.add(action.id);
       self.action = null;
       specialLanded = true;
@@ -788,7 +800,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         self.energy = Math.min(100, self.energy + action.move.energyGain);
         const damage = other.hp > 0 ? damageOf(self, other, action.move) : 0;
         if (other.hp > 0) other.hp -= damage;
-        dealt[self.id] = { damage, shielded: false, throwIndex: null };
+        dealt[self.id] = { damage, shielded: false, throwIndex: null, disguise: false };
         self.action = null;
         markShell(other);
       };
@@ -833,6 +845,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         moveId: action.move.id,
         scripted: action.scripted,
         line: moveLine[fighter.id],
+        disguise: action.kind === "charged" ? dealt[fighter.id].disguise : false,
         ...snap,
       });
     }

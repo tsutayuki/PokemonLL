@@ -165,8 +165,9 @@ const breaker = base({
 const mimi = simulateBattle(mimikyu, breaker);
 const incoming = mimi.timeline.filter((event) => event.actor === "b" && event.kind === "charged");
 assert(incoming[0]?.damage === 1, `disguise blocks to 1, got ${incoming[0]?.damage}`);
-assert(incoming[1] && incoming[1].damage > 1, "second special is not blocked");
-assert(mimi.timeline.some((event) => event.actor === "a" && event.moveName === "ばけのかわ"), "ばけのかわ row");
+assert(incoming[0]?.disguise, "the special is marked as disguise");
+assert(incoming[1] && incoming[1].damage > 1 && !incoming[1].disguise, "second special is not blocked");
+assert(!mimi.timeline.some((event) => event.moveName === "ばけのかわ"), "disguise stays on the special row");
 
 const cram = base({
   label: "cram",
@@ -194,7 +195,7 @@ const gulp = simulateBattle(cram, victim);
 assert(gulp.timeline.some((event) => event.moveName === "うのミサイル装填" && event.spriteId === 846), "loads arrokuda above half");
 const missile = gulp.timeline.find((event) => event.moveName === "うのミサイル");
 assert(missile?.damage === 30, `15% of 200 is 30, got ${missile?.damage}`);
-assert(missile?.line === 1, "missile is the second line");
+assert(missile?.line === 0, "missile shares the special's row");
 const sameTurn = simulateBattle(cram, { ...victim, attack: 100, startEnergy: 100 });
 const loaded = sameTurn.timeline.find((event) => event.moveName === "うのミサイル装填");
 const spit = sameTurn.timeline.find((event) => event.moveName === "うのミサイル");
@@ -229,6 +230,22 @@ const early = minior.timeline.find((event) => event.actor === "b" && event.kind 
 const lateForm = minior.timeline.find((event) => event.moveName === "フォルムチェンジ");
 assert(lateForm?.chargeLine, "minior form change is underlined");
 assert((early?.damage ?? 99) < 40, `meteor defense keeps early damage modest, got ${early?.damage}`);
+
+const meteorForm = simulateBattle(
+  {
+    ...core,
+    form: "Meteor",
+    attack: 90,
+    defense: 160,
+    miniorMeteor: null,
+    miniorCore: { attack: 140, defense: 80 },
+  },
+  hammer,
+);
+const meteorEarly = meteorForm.timeline.find((event) => event.actor === "b" && event.kind === "fast");
+const meteorFormRow = meteorForm.timeline.find((event) => event.actor === "a" && event.moveName === "フォルムチェンジ");
+assert(meteorFormRow?.chargeLine, "selecting meteor form still changes to core below half");
+assert((meteorEarly?.damage ?? 99) < 40, `selected meteor form keeps meteor defense, got ${meteorEarly?.damage}`);
 
 const shellBreak = simulateBattle(
   {
@@ -315,7 +332,7 @@ assert(
   `re-entry keeps a single defense drop (${fastDamage(stayed, 3)} > ${back} > ${fastDamage(cleared, 3)})`,
 );
 assert(
-  reentered.timeline.filter((event) => event.moveName === "ばけのかわ").length === 1,
+  reentered.timeline.filter((event) => event.disguise).length === 1,
   "disguise stays used after switching back",
 );
 

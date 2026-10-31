@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { usePokemonPicks } from "../../lib/pogo/pokemonPicks";
 import { getPokemonDisplayName, type PogoStatRecord } from "../../lib/pogo/research";
@@ -21,10 +22,12 @@ const FAVORITES: { id: number; form: string; label: string }[] = [
   { id: 778, form: "Disguised", label: "ミミッキュ" },
   { id: 230, form: "Normal", label: "キングドラ" },
   { id: 828, form: "Normal", label: "フォクスライ" },
-  { id: 618, form: "Galarian", label: "マッギョ" },
+  { id: 618, form: "Normal", label: "マッギョ" },
   { id: 901, form: "Normal", label: "ガチグマ" },
   { id: 752, form: "Normal", label: "オニシズクモ" },
 ];
+
+const FAVORITE_IDS = new Set(FAVORITES.map((item) => item.id));
 
 type Mon = { key: string; record: PogoStatRecord; label: string };
 
@@ -52,29 +55,39 @@ export function FrequentPokemon({
 }) {
   const { recent } = usePokemonPicks();
   const boxRef = useRef<HTMLDivElement>(null);
-  const [cols, setCols] = useState(8);
+  const [size, setSize] = useState(40);
   const [pending, setPending] = useState<Mon | null>(null);
 
-  useEffect(() => {
-    const node = boxRef.current;
-    if (!node) return;
-    const apply = () => setCols(Math.max(1, Math.floor((node.clientWidth + 2) / 42)));
-    apply();
-    const observer = new ResizeObserver(apply);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  const recentMons = recent.map((key) => recentMon(stats, key)).filter((mon): mon is Mon => Boolean(mon));
-  const recentIds = new Set(recentMons.map((mon) => mon.record.pokemon_id));
+  const recentMons = recent
+    .map((key) => recentMon(stats, key))
+    .filter((mon): mon is Mon => Boolean(mon))
+    .filter((mon) => !FAVORITE_IDS.has(mon.record.pokemon_id));
   const catalog = FAVORITES.flatMap((item) => {
-    if (recentIds.has(item.id)) return [];
     const record = findRecord(stats, item.id, item.form);
     if (!record) return [];
     return [{ key: `${item.id}:${item.form}`, record, label: item.label }];
   });
-  const row2 = catalog.slice(0, cols);
-  const row3 = catalog.slice(cols);
+  const perRow = Math.ceil(catalog.length / 2);
+  const row2 = catalog.slice(0, perRow);
+  const row3 = catalog.slice(perRow);
+  const widest = Math.max(perRow, recentMons.length, 1);
+
+  useEffect(() => {
+    const node = boxRef.current;
+    if (!node) return;
+    const apply = () => {
+      const style = getComputedStyle(node);
+      const pad = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      const inner = Math.max(0, node.clientWidth - pad);
+      const gap = 2;
+      const next = Math.floor((inner - gap * (widest - 1)) / widest);
+      setSize(Math.max(1, Math.min(40, next)));
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [widest]);
 
   const choose = (side: "a" | "b") => {
     if (!pending) return;
@@ -83,13 +96,19 @@ export function FrequentPokemon({
   };
 
   return (
-    <div className="freq-box" ref={boxRef}>
-      <FreqRow mons={recentMons} onPick={setPending} />
-      {row2.length ? <FreqRow mons={row2} onPick={setPending} /> : null}
-      {row3.length ? <FreqRow mons={row3} onPick={setPending} /> : null}
+    <div className={`panel freq-box${pending ? " is-picking" : ""}`} ref={boxRef}>
+      {recentMons.length ? <FreqRow mons={recentMons} size={size} onPick={setPending} /> : null}
+      {row2.length ? <FreqRow mons={row2} size={size} onPick={setPending} /> : null}
+      {row3.length ? <FreqRow mons={row3} size={size} onPick={setPending} /> : null}
+      {pending
+        ? createPortal(
+            <button type="button" className="freq-cancel" aria-label="選択を閉じる" onClick={() => setPending(null)} />,
+            document.body,
+          )
+        : null}
       {pending ? (
         <>
-          <button type="button" className="freq-cancel" aria-label="選択を閉じる" onClick={() => setPending(null)} />
+          <button type="button" className="freq-margin" aria-label="選択を閉じる" onClick={() => setPending(null)} />
           <div className="freq-choose" role="group" aria-label={`${pending.label}をどちらに入れるか`}>
             <button type="button" className="freq-side is-left" onClick={() => choose("a")}>
               <span className="freq-arrow" aria-hidden="true">
@@ -110,12 +129,19 @@ export function FrequentPokemon({
   );
 }
 
-function FreqRow({ mons, onPick }: { mons: Mon[]; onPick: (mon: Mon) => void }) {
+function FreqRow({ mons, size, onPick }: { mons: Mon[]; size: number; onPick: (mon: Mon) => void }) {
   return (
     <div className="freq-row">
       {mons.map((mon) => (
-        <button key={mon.key} type="button" className="freq-mon" aria-label={mon.label} onClick={() => onPick(mon)}>
-          <PokemonDotSprite pokemonId={mon.record.pokemon_id} form={mon.record.form} alt="" size={40} />
+        <button
+          key={mon.key}
+          type="button"
+          className="freq-mon"
+          style={{ width: size, height: size }}
+          aria-label={mon.label}
+          onClick={() => onPick(mon)}
+        >
+          <PokemonDotSprite pokemonId={mon.record.pokemon_id} form={mon.record.form} alt="" size={size} />
         </button>
       ))}
     </div>

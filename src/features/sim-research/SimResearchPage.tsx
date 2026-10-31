@@ -4,7 +4,7 @@ import { ArrowLeft, Pin } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { PokemonLabelFit } from "../../components/PokemonLabelFit";
-import { bladeFastMove, statsUnderCap } from "../../lib/pogo/battleTraits";
+import { bladeFastMove, isAuraWheel, statsUnderCap } from "../../lib/pogo/battleTraits";
 import { damageForMove, type PvpMove } from "../../lib/pogo/combat";
 import { MEGA_LEVELS, readMegaLevel, scaleThirdAttack, type MegaLevel } from "../../lib/pogo/megaLevel";
 import { bestMoves } from "../../lib/pogo/moveScore";
@@ -764,6 +764,14 @@ function packFighter(
       if (near) input.miniorMeteor = { attack: near.attack, defense: near.defense };
     }
   }
+  if (entry.pokemon_id === 774 && entry.form === "Meteor") {
+    const core = data.stats.find((row) => row.pokemon_id === 774 && row.form === "Red");
+    const cpm = scale.byLevel.get(build.level.toFixed(1));
+    if (core && cpm != null) {
+      const derived = computeDerivedStats(core, side.atkIv, side.defIv, side.staIv, cpm);
+      input.miniorCore = { attack: derived.attack, defense: derived.defense };
+    }
+  }
   if (side.initialOn) {
     const maxHp = build.stamina;
     const damage = Math.max(0, Math.min(maxHp, Math.floor(side.initialDamage)));
@@ -1017,6 +1025,10 @@ type SheetCell = {
   throwIndex: number | null;
   spriteId?: number;
   spriteForm?: string;
+  extraName?: string;
+  extraDamage?: number;
+  extraSpriteId?: number;
+  extraSpriteForm?: string;
 };
 
 type TurnRow = {
@@ -1027,7 +1039,13 @@ type TurnRow = {
   hpB: number;
   a: TimelineEvent | null;
   b: TimelineEvent | null;
+  aNote: TimelineEvent | null;
+  bNote: TimelineEvent | null;
 };
+
+function isMissile(event: TimelineEvent) {
+  return event.kind === "note" && event.moveName === "うのミサイル";
+}
 
 function buildSheet(events: TimelineEvent[]) {
   const byTurn = new Map<number, TimelineEvent[]>();
@@ -1039,7 +1057,8 @@ function buildSheet(events: TimelineEvent[]) {
 
   const turns: TurnRow[] = [];
   for (const [turn, list] of byTurn) {
-    const maxLine = Math.max(0, ...list.map((event) => event.line ?? 0));
+    const visible = list.filter((event) => !isMissile(event));
+    const maxLine = Math.max(0, ...visible.map((event) => event.line ?? 0));
     const end = list[list.length - 1];
     for (let line = 0; line <= maxLine; line += 1) {
       const row: TurnRow = {
@@ -1050,15 +1069,24 @@ function buildSheet(events: TimelineEvent[]) {
         hpB: end?.hpB ?? 0,
         a: null,
         b: null,
+        aNote: null,
+        bNote: null,
       };
-      for (const event of list) {
+      for (const event of visible) {
         if ((event.line ?? 0) !== line) continue;
         row[event.actor] = event;
+      }
+      if (line === 0) {
+        for (const event of list) {
+          if (!isMissile(event)) continue;
+          if (event.actor === "a") row.aNote = event;
+          else row.bNote = event;
+        }
       }
       if (line > 0) {
         for (const actor of ["a", "b"] as const) {
           if (row[actor]) continue;
-          const carried = list.find((event) => event.actor === actor && (event.line ?? 0) === 0 && event.kind === "fast");
+          const carried = visible.find((event) => event.actor === actor && (event.line ?? 0) === 0 && event.kind === "fast");
           if (carried) row[actor] = carried;
         }
       }
@@ -1081,16 +1109,35 @@ function buildSheet(events: TimelineEvent[]) {
     hpA: row.hpA,
     hpB: row.hpB,
     charge: chargeKeys.has(row.key),
-    guardA: receivedShield(row, "a"),
-    guardB: receivedShield(row, "b"),
+    guardA: receivedGuard(row, "a"),
+    guardB: receivedGuard(row, "b"),
     a: cellsA.get(row.key) ?? null,
     b: cellsB.get(row.key) ?? null,
   }));
 }
 
-function receivedShield(row: TurnRow, actor: "a" | "b") {
+function receivedGuard(row: TurnRow, actor: "a" | "b"): "shield" | "disguise" | null {
   const other = actor === "a" ? row.b : row.a;
-  return Boolean(other?.kind === "charged" && other.shielded);
+  if (other?.kind !== "charged") return null;
+  if (other.shielded) return "shield";
+  if (other.disguise) return "disguise";
+  return null;
+}
+
+function sideNote(row: TurnRow, actor: "a" | "b") {
+  return actor === "a" ? row.aNote : row.bNote;
+}
+
+/** セルの下端が、チャージ下線を引くターンの最後の行に届いている。 */
+function cellEndsCharge(turns: TurnRow[], chargeKeys: Set<string>, to: number) {
+  const turn = turns[to]?.turn;
+  if (turn == null || turns[to + 1]?.turn === turn) return false;
+  let start = to;
+  while (start > 0 && turns[start - 1].turn === turn) start -= 1;
+  for (let index = start; index <= to; index += 1) {
+    if (chargeKeys.has(turns[index].key)) return true;
+  }
+  return false;
 }
 
 function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeKeys: Set<string>) {
@@ -1098,56 +1145,73 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeKeys: Set<string
   let index = 0;
   while (index < turns.length) {
     const event = turns[index][actor];
-    if (!event) {
+    const note = sideNote(turns[index], actor);
+    if (!event && !note) {
       cells.set(turns[index].key, null);
       index += 1;
       continue;
     }
 
-    const startedEarlier = index > 0 && turns[index - 1][actor]?.actionId === event.actionId;
-    if (event.kind === "note" || (startedEarlier && receivedShield(turns[index], actor) && event.kind === "fast")) {
+    const startedEarlier = Boolean(index > 0 && event && turns[index - 1][actor]?.actionId === event.actionId);
+    const guardHere = receivedGuard(turns[index], actor);
+    if (note || event?.kind === "note" || (startedEarlier && guardHere && event?.kind === "fast")) {
+      const missile = note && event && event.kind !== "note" ? note : null;
+      const shown = missile ? event : (note ?? event);
+      const label = event?.kind === "note" ? event.moveName : missile ? event?.moveName ?? "" : note?.moveName ?? "";
       cells.set(turns[index].key, {
         show: true,
         span: 1,
-        name: event.kind === "note" ? event.moveName : "",
-        type: event.moveType,
-        damage: event.kind === "note" ? event.damage : 0,
+        name: startedEarlier && guardHere && !missile ? "" : label,
+        type: event?.moveType ?? "",
+        damage: missile ? (event?.damage ?? 0) : event && event.kind !== "note" ? 0 : (shown?.damage ?? 0),
         shielded: false,
-        endsCharge: chargeKeys.has(turns[index].key),
+        endsCharge: cellEndsCharge(turns, chargeKeys, index),
         cct: false,
-        charged: false,
-        throwIndex: null,
-        spriteId: event.spriteId,
-        spriteForm: event.spriteForm,
+        charged: event?.kind === "charged",
+        throwIndex: event?.kind === "charged" ? (event.throwIndex ?? null) : null,
+        spriteId: missile ? undefined : shown?.spriteId,
+        spriteForm: missile ? undefined : shown?.spriteForm,
+        extraName: missile?.moveName,
+        extraDamage: missile?.damage,
+        extraSpriteId: missile?.spriteId,
+        extraSpriteForm: missile?.spriteForm,
       });
       index += 1;
       continue;
     }
 
     let end = index;
-    while (end < turns.length && turns[end][actor]?.actionId === event.actionId && turns[end][actor]?.kind !== "note") {
-      if (end > index && receivedShield(turns[end], actor)) break;
-      const splitAfter = chargeKeys.has(turns[end].key);
+    let sawCharge = false;
+    while (end < turns.length && turns[end][actor]?.actionId === event?.actionId && turns[end][actor]?.kind !== "note") {
+      if (sideNote(turns[end], actor) && end > index) break;
+      if (end > index && receivedGuard(turns[end], actor)) break;
+      if (chargeKeys.has(turns[end].key)) sawCharge = true;
+      const leaving = !turns[end + 1] || turns[end + 1].turn !== turns[end].turn;
       end += 1;
-      if (splitAfter) break;
+      if (sawCharge && leaving) break;
     }
 
     const slice = turns.slice(index, end);
     let landing = [...slice].reverse().find((row) => (row[actor]?.damage ?? 0) > 0)?.[actor];
     const following = turns[end]?.[actor];
-    if (!landing && following?.actionId === event.actionId && (following.damage ?? 0) > 0) landing = following;
-    const endsCharge = chargeKeys.has(turns[end - 1].key);
+    if (!landing && following && following.actionId === event?.actionId && following.damage > 0) landing = following;
+    const endsCharge = cellEndsCharge(turns, chargeKeys, end - 1);
+    const missile = slice.map((row) => sideNote(row, actor)).find((item) => item);
     cells.set(turns[index].key, {
       show: true,
       span: end - index,
-      name: event.moveName,
-      type: event.moveType,
+      name: event?.moveName ?? "",
+      type: event?.moveType ?? "",
       damage: landing?.damage ?? 0,
       shielded: landing?.shielded ?? false,
       endsCharge,
-      cct: event.kind === "fast" && event.cct,
-      charged: event.kind === "charged",
-      throwIndex: event.throwIndex,
+      cct: event?.kind === "fast" && event.cct,
+      charged: event?.kind === "charged",
+      throwIndex: event?.throwIndex ?? null,
+      extraName: missile?.moveName,
+      extraDamage: missile?.damage,
+      extraSpriteId: missile?.spriteId,
+      extraSpriteForm: missile?.spriteForm,
     });
     for (let cursor = index + 1; cursor < end; cursor += 1) {
       cells.set(turns[cursor].key, {
@@ -1188,14 +1252,49 @@ function BattleSheet({
       <tbody>
         {rows.map((row, index) => {
           const prev = rows[index - 1];
-          const sameTurn = prev?.turn === row.turn;
+          const next = rows[index + 1];
+          const follow = prev?.turn === row.turn;
+          const more = next?.turn === row.turn;
+          let span = 1;
+          if (!follow) {
+            while (rows[index + span]?.turn === row.turn) span += 1;
+          }
+          let turnStart = index;
+          while (turnStart > 0 && rows[turnStart - 1].turn === row.turn) turnStart -= 1;
+          let turnEnd = index;
+          while (rows[turnEnd + 1]?.turn === row.turn) turnEnd += 1;
+          const turnHasCharge = rows.slice(turnStart, turnEnd + 1).some((item) => item.charge);
+          const prevHp = follow ? null : prev;
           return (
-            <tr key={row.key} className={row.charge ? "has-charge" : undefined}>
-              <td className="hp num">{!prev || prev.hpA !== row.hpA ? row.hpA : ""}</td>
+            <tr
+              key={row.key}
+              className={[
+                row.charge ? "has-charge" : "",
+                turnHasCharge && index === turnEnd ? "has-charge-end" : "",
+                turnHasCharge && index === turnStart ? "has-charge-span" : "",
+                follow ? "is-follow" : "",
+                more ? "has-follow" : "",
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined}
+            >
+              {follow ? null : (
+                <td className="hp num" rowSpan={span}>
+                  {!prevHp || prevHp.hpA !== row.hpA ? row.hpA : ""}
+                </td>
+              )}
               <MoveCell cell={row.a} guard={row.guardA} onCharged={(throwIndex) => onCharged("a", throwIndex)} />
-              <td className="turn num">{sameTurn ? "" : row.turn}</td>
+              {follow ? null : (
+                <td className="turn num" rowSpan={span}>
+                  {row.turn}
+                </td>
+              )}
               <MoveCell cell={row.b} guard={row.guardB} onCharged={(throwIndex) => onCharged("b", throwIndex)} />
-              <td className="hp num">{!prev || prev.hpB !== row.hpB ? row.hpB : ""}</td>
+              {follow ? null : (
+                <td className="hp num" rowSpan={span}>
+                  {!prevHp || prevHp.hpB !== row.hpB ? row.hpB : ""}
+                </td>
+              )}
             </tr>
           );
         })}
@@ -1210,23 +1309,29 @@ function MoveCell({
   onCharged,
 }: {
   cell: SheetCell | null;
-  guard: boolean;
+  guard: "shield" | "disguise" | null;
   onCharged: (index: number) => void;
 }) {
   if (cell && !cell.show) return null;
+  const guardMark =
+    guard === "shield" ? (
+      <span className="move-shield-wrap">
+        <ShieldMark size={13} />
+      </span>
+    ) : guard === "disguise" ? (
+      <span className="move-disguise">ばけのかわ</span>
+    ) : null;
   if (!cell?.name) {
-    if (guard) {
+    if (guardMark) {
       return (
         <td className={`move is-guard${cell?.endsCharge ? " ends-charge" : ""}`}>
-          <span className="move-shield-wrap">
-            <ShieldMark size={13} />
-          </span>
+          {guardMark}
         </td>
       );
     }
     return <td className="move is-empty" />;
   }
-  const stacked = guard;
+  const stacked = Boolean(guardMark);
   const longCct = Boolean(cell.cct && !stacked && cell.span === 1 && cell.name.length >= 6);
   const moveMain = (
     <span className="move-line-main">
@@ -1248,6 +1353,16 @@ function MoveCell({
       ) : null}
     </span>
   );
+  const extra =
+    cell.extraName ? (
+      <span className="move-line-main is-extra">
+        <span className="move-name">{cell.extraName}</span>
+        {cell.extraDamage ? <span className="num move-dmg">{cell.extraDamage}</span> : null}
+        {cell.extraSpriteId ? (
+          <PokemonDotSprite pokemonId={cell.extraSpriteId} form={cell.extraSpriteForm} alt="" size={22} />
+        ) : null}
+      </span>
+    ) : null;
   return (
     <td
       className={`move${cell.endsCharge ? " ends-charge" : ""}${stacked ? " is-stacked" : ""}${longCct ? " is-long-cct" : ""}${cell.charged ? " is-charged" : ""}`}
@@ -1257,20 +1372,27 @@ function MoveCell({
       {stacked ? (
         <span className="move-label is-stacked">
           {moveMain}
+          {extra}
           {cell.cct ? <span className="cct-mark">CCT</span> : null}
-          <span className="move-shield-wrap">
-            <ShieldMark size={13} />
-          </span>
+          {guardMark}
         </span>
       ) : (
         <span className={`move-label${cell.cct ? " has-cct" : ""}${longCct ? " is-long" : ""}`}>
           {moveMain}
+          {extra}
           {cell.cct ? <span className="cct-mark">CCT</span> : null}
         </span>
       )}
     </td>
   );
 }
+
+type MatchupBar = {
+  damage: number;
+  percent: number;
+  remainRatio: number;
+  band: "low" | "mid" | "high";
+};
 
 type MatchupHitRow = {
   id: string;
@@ -1280,36 +1402,45 @@ type MatchupHitRow = {
   remainRatio: number;
   band: "low" | "mid" | "high";
   third: boolean;
+  alt: MatchupBar | null;
 };
+
+function matchupBar(damage: number, maxHp: number): MatchupBar {
+  const percent = (100 * damage) / maxHp;
+  const remainRatio = Math.max(0, Math.min(1, (maxHp - damage) / maxHp));
+  const band = remainRatio <= 0.2 ? "low" : remainRatio <= 0.5 ? "mid" : "high";
+  return { damage, percent, remainRatio, band };
+}
 
 function matchupMoveHits(attacker: FighterInput, defender: FighterInput, thirdId: string | null): MatchupHitRow[] {
   const moves = [attacker.fast, ...attacker.charged];
   const seen = new Set<string>();
   const rows: MatchupHitRow[] = [];
+  const maxHp = Math.max(1, defender.hp);
   for (const move of moves) {
     if (seen.has(move.id)) continue;
     seen.add(move.id);
-    const damage = damageForMove(
-      move,
-      attacker.attack,
-      defender.defense,
-      attacker.types,
-      defender.types,
-      attacker.shadow,
-      defender.shadow,
-    );
-    const maxHp = Math.max(1, defender.hp);
-    const percent = (100 * damage) / maxHp;
-    const remainRatio = Math.max(0, Math.min(1, (maxHp - damage) / maxHp));
-    const band = remainRatio <= 0.2 ? "low" : remainRatio <= 0.5 ? "mid" : "high";
+    const hit = (type: string) =>
+      damageForMove(
+        { ...move, type },
+        attacker.attack,
+        defender.defense,
+        attacker.types,
+        defender.types,
+        attacker.shadow,
+        defender.shadow,
+      );
+    const damage = hit(move.type);
+    const electric = isAuraWheel(move) ? hit("electric") : damage;
+    const dark = isAuraWheel(move) ? hit("dark") : damage;
+    const bar = matchupBar(isAuraWheel(move) ? electric : damage, maxHp);
+    const alt = isAuraWheel(move) && electric !== dark ? matchupBar(dark, maxHp) : null;
     rows.push({
       id: move.id,
       name: move.name,
-      damage,
-      percent,
-      remainRatio,
-      band,
+      ...bar,
       third: move.id === thirdId,
+      alt,
     });
   }
   return rows;
@@ -1399,12 +1530,27 @@ function MatchupSide({
   );
 }
 
-function HitMeter({ row }: { row: MatchupHitRow }) {
+function HitBar({ row }: { row: MatchupBar }) {
   const lossRatio = Math.max(0, Math.min(1, 1 - row.remainRatio));
   const remainPct = row.remainRatio * 100;
   const lossPct = lossRatio * 100;
   const onlyRemain = lossPct <= 0;
   const onlyLoss = remainPct <= 0;
+  return (
+    <div className="hp-track hp-track-hit" aria-hidden="true">
+      {onlyLoss ? (
+        <i className="hp-hit-lost is-full" style={{ width: "100%" }} />
+      ) : (
+        <>
+          <i className={`hp-hit-remain is-${row.band}${onlyRemain ? " is-full" : ""}`} style={{ width: `${remainPct}%` }} />
+          {lossPct > 0 ? <i className="hp-hit-lost" style={{ width: `${lossPct}%` }} /> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function HitMeter({ row }: { row: MatchupHitRow }) {
   return (
     <div className="sim-hit-row">
       <div className="sim-hit-meta">
@@ -1413,16 +1559,18 @@ function HitMeter({ row }: { row: MatchupHitRow }) {
           {row.damage}({row.percent.toFixed(1)}%)
         </span>
       </div>
-      <div className="hp-track hp-track-hit" aria-hidden="true">
-        {onlyLoss ? (
-          <i className="hp-hit-lost is-full" style={{ width: "100%" }} />
-        ) : (
-          <>
-            <i className={`hp-hit-remain is-${row.band}${onlyRemain ? " is-full" : ""}`} style={{ width: `${remainPct}%` }} />
-            {lossPct > 0 ? <i className="hp-hit-lost" style={{ width: `${lossPct}%` }} /> : null}
-          </>
-        )}
-      </div>
+      <HitBar row={row} />
+      {row.alt ? (
+        <>
+          <div className="sim-hit-meta">
+            <span className="sim-hit-name" />
+            <span className="sim-hit-val num">
+              {row.alt.damage}({row.alt.percent.toFixed(1)}%)
+            </span>
+          </div>
+          <HitBar row={row.alt} />
+        </>
+      ) : null}
     </div>
   );
 }
