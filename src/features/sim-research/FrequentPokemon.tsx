@@ -43,7 +43,7 @@ const GREAT: Favorite[] = [
 ];
 
 const LITTLE: Favorite[] = [
-  { id: 557, form: "Normal", label: "ドーミラー" },
+  { id: 436, form: "Normal", label: "ドーミラー" },
   { id: 827, form: "Normal", label: "クスネ" },
   { id: 509, form: "Normal", label: "チョロネコ" },
   { id: 355, form: "Normal", label: "ヨマワル" },
