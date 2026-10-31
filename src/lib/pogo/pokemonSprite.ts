@@ -50,6 +50,7 @@ const FORM_ORDER: Record<number, readonly string[]> = {
   676: ["Natural", "Dandy", "Debutante", "Diamond", "Heart", "Kabuki", "La_reine", "Matron", "Pharaoh", "Star"],
   681: ["Shield", "Blade"],
   711: ["Small", "Average", "Large", "Super"],
+  718: ["Fifty_percent", "Ten_percent", "Complete"],
   720: ["Confined", "Unbound"],
   741: ["Baile", "Pompom", "Pau", "Sensu"],
   745: ["Midday", "Midnight", "Dusk"],

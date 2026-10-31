@@ -325,12 +325,15 @@ export function SimResearchPage() {
 
           <FrequentPokemon
             stats={data.stats}
-            onPick={(record, label, which) => {
+            league={leagueId}
+            onPick={(record, label, which, sprite) => {
               const group: SpeciesGroup = {
                 name: `${record.pokemon_id}:${record.form}`,
                 pokemonId: record.pokemon_id,
                 entries: [record],
                 label,
+                exactSprite: sprite?.exactSprite,
+                spriteSuffix: sprite?.spriteSuffix,
               };
               recordPokemonPick(group.pokemonId, group.name);
               changeSide(which, (current) => fillSideFromGroup(group, data, cpData.levels, cpData.byLevel, cap, current));
