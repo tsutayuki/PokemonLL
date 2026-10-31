@@ -71,7 +71,11 @@ export function leagueCap(leagueId: LeagueId, customCap = 1500) {
 }
 
 export function pickPreferredEntry(group: SpeciesGroup) {
-  return group.entries.find((entry) => entry.form === "Normal") ?? group.entries[0];
+  return (
+    group.entries.find((entry) => entry.pokemon_id === 778 && entry.form === "Disguised") ??
+    group.entries.find((entry) => entry.form === "Normal") ??
+    group.entries[0]
+  );
 }
 
 export function speciesDisplayName(group: SpeciesGroup) {

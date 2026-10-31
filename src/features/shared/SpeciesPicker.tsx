@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
-import { matchesNameQuery } from "../../lib/pogo/kanaSearch";
+import { nameQueryRank } from "../../lib/pogo/kanaSearch";
 import { pickPreferredEntry, speciesDisplayName, type SpeciesGroup } from "../../lib/pogo/research";
 
 export function SpeciesPicker({
@@ -21,10 +21,18 @@ export function SpeciesPicker({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return groups.slice(0, compact ? 24 : 40);
     return groups
-      .filter((group) =>
-        matchesNameQuery(normalized, speciesDisplayName(group), group.name, group.pokemonId, group.aliases ?? []),
+      .flatMap((group) => {
+        const rank = nameQueryRank(normalized, speciesDisplayName(group), group.name, group.pokemonId, group.aliases ?? []);
+        return rank == null ? [] : [{ group, rank }];
+      })
+      .sort(
+        (a, b) =>
+          a.rank - b.rank ||
+          speciesDisplayName(a.group).length - speciesDisplayName(b.group).length ||
+          a.group.pokemonId - b.group.pokemonId,
       )
-      .slice(0, compact ? 24 : 40);
+      .slice(0, compact ? 24 : 40)
+      .map((item) => item.group);
   }, [compact, groups, query]);
 
   return (

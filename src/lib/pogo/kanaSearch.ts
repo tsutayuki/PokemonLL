@@ -163,6 +163,62 @@ function nameHiragana(name: string, stripPunctuation: boolean) {
   return expandLongVowel(toHiragana(name.normalize("NFKC").toLowerCase().replace(pattern, "")));
 }
 
+const RANK_EXACT = 0;
+const RANK_PREFIX = 1;
+const RANK_PARTIAL = 2;
+
+function queryStretched(query: string) {
+  const normalized = query.normalize("NFKC").toLowerCase().replace(/[\s・･._\-ｰ'"’]/g, "").replace(/[♀♂]/g, "");
+  const stretched = new Set<string>();
+  const own = expandLongVowel(toHiragana(normalized))[0];
+  if (own) stretched.add(own);
+  if (/[a-z]/.test(normalized)) {
+    const converted = expandLongVowel(romajiToHiragana(normalized.replace(/[^a-z]/g, "")))[0];
+    if (converted) stretched.add(converted);
+  }
+  return [...stretched].filter((variant) => variant.length > 0);
+}
+
+/**
+ * 小さいほど先。0 は完全一致、1 は名前の先頭、2 は途中だけ。
+ * 長音は伸ばした形で先頭を見る。ドオーの「オー」はドードーの「ドー」にしない。
+ */
+export function nameQueryRank(
+  query: string,
+  japanese: string,
+  english: string,
+  dex: number,
+  aliases: readonly string[] = [],
+) {
+  const raw = query.normalize("NFKC").trim().toLowerCase();
+  if (!raw) return null;
+  let best: number | null = null;
+  const keep = (rank: number) => {
+    best = best == null ? rank : Math.min(best, rank);
+  };
+
+  const dexText = String(dex);
+  if (dexText === raw || dexText.padStart(4, "0") === raw) keep(RANK_EXACT);
+
+  const englishKey = english.toLowerCase().replace(/[\s._\-]/g, "");
+  const queryKey = raw.replace(/[\s・･._\-ｰ'"’]/g, "");
+  if (queryKey && englishKey === queryKey) keep(RANK_EXACT);
+  else if (queryKey && englishKey.startsWith(queryKey)) keep(RANK_PREFIX);
+  else if (queryKey && englishKey.includes(queryKey)) keep(RANK_PARTIAL);
+
+  if (matchesNameExactly(raw, japanese, aliases)) keep(RANK_EXACT);
+
+  const stretchedQuery = queryStretched(raw);
+  const variants = queryHiraganaVariants(raw);
+  for (const name of [japanese, ...aliases]) {
+    const forms = nameHiragana(name, false);
+    const stretched = forms[0] ?? "";
+    if (stretchedQuery.some((variant) => stretched.startsWith(variant))) keep(RANK_PREFIX);
+    if (variants.some((variant) => forms.some((item) => item.includes(variant)))) keep(RANK_PARTIAL);
+  }
+  return best;
+}
+
 /** 図鑑名と、ひらがな・カタカナ・ローマ字の入力が、長音のゆれを除いて同じ文字列か。部分一致は含めない。 */
 export function matchesNameExactly(query: string, japanese: string, aliases: readonly string[] = []) {
   const raw = query.normalize("NFKC").trim().toLowerCase();
@@ -183,16 +239,5 @@ export function matchesNameQuery(
 ) {
   const raw = query.normalize("NFKC").trim().toLowerCase();
   if (!raw) return true;
-  const dexText = String(dex);
-  if (dexText === raw || dexText.padStart(4, "0") === raw) return true;
-
-  const englishKey = english.toLowerCase().replace(/[\s._\-]/g, "");
-  const queryKey = raw.replace(/[\s・･._\-ｰ'"’]/g, "");
-  if (englishKey.includes(queryKey)) return true;
-
-  const variants = queryHiraganaVariants(raw);
-  return [japanese, ...aliases].some((name) => {
-    const nameHira = nameHiragana(name, false);
-    return variants.some((variant) => nameHira.some((item) => item.includes(variant)));
-  });
+  return nameQueryRank(raw, japanese, english, dex, aliases) != null;
 }

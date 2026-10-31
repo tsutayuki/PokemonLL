@@ -28,6 +28,8 @@ const FAVORITES: { id: number; form: string; label: string }[] = [
 ];
 
 const FAVORITE_IDS = new Set(FAVORITES.map((item) => item.id));
+const PER_ROW = 9;
+const ICON_MAX = 72;
 
 type Mon = { key: string; record: PogoStatRecord; label: string };
 
@@ -61,16 +63,17 @@ export function FrequentPokemon({
   const recentMons = recent
     .map((key) => recentMon(stats, key))
     .filter((mon): mon is Mon => Boolean(mon))
-    .filter((mon) => !FAVORITE_IDS.has(mon.record.pokemon_id));
+    .filter((mon) => !FAVORITE_IDS.has(mon.record.pokemon_id))
+    .slice(0, PER_ROW);
   const catalog = FAVORITES.flatMap((item) => {
     const record = findRecord(stats, item.id, item.form);
     if (!record) return [];
     return [{ key: `${item.id}:${item.form}`, record, label: item.label }];
   });
-  const perRow = Math.ceil(catalog.length / 2);
-  const row2 = catalog.slice(0, perRow);
-  const row3 = catalog.slice(perRow);
-  const widest = Math.max(perRow, recentMons.length, 1);
+  const favoriteRows: Mon[][] = [];
+  for (let index = 0; index < catalog.length; index += PER_ROW) {
+    favoriteRows.push(catalog.slice(index, index + PER_ROW));
+  }
 
   useEffect(() => {
     const node = boxRef.current;
@@ -80,14 +83,14 @@ export function FrequentPokemon({
       const pad = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
       const inner = Math.max(0, node.clientWidth - pad);
       const gap = 2;
-      const next = Math.floor((inner - gap * (widest - 1)) / widest);
-      setSize(Math.max(1, Math.min(40, next)));
+      const next = Math.floor((inner - gap * (PER_ROW - 1)) / PER_ROW);
+      setSize(Math.max(1, Math.min(ICON_MAX, next)));
     };
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [widest]);
+  }, []);
 
   const choose = (side: "a" | "b") => {
     if (!pending) return;
@@ -98,12 +101,13 @@ export function FrequentPokemon({
   return (
     <div className={`panel freq-box${pending ? " is-picking" : ""}`} ref={boxRef}>
       {recentMons.length ? <FreqRow mons={recentMons} size={size} onPick={setPending} /> : null}
-      {row2.length ? <FreqRow mons={row2} size={size} onPick={setPending} /> : null}
-      {row3.length ? <FreqRow mons={row3} size={size} onPick={setPending} /> : null}
+      {favoriteRows.map((row) => (
+        <FreqRow key={row[0]?.key ?? "row"} mons={row} size={size} onPick={setPending} />
+      ))}
       {pending
         ? createPortal(
             <button type="button" className="freq-cancel" aria-label="選択を閉じる" onClick={() => setPending(null)} />,
-            document.body,
+            document.querySelector(".app-root") ?? document.body,
           )
         : null}
       {pending ? (

@@ -181,6 +181,8 @@ function pickRepresentative(list: PogoStatRecord[], preferred: PogoStatRecord | 
     const match = list.find((item) => item.pokemon_id === preferred.pokemon_id && item.form === preferred.form);
     if (match) return match;
   }
+  const disguised = list.find((item) => item.pokemon_id === 778 && item.form === "Disguised");
+  if (disguised) return disguised;
   return list.find((item) => item.form === "Normal") ?? list.find((item) => !COSTUME.test(item.form)) ?? list[0];
 }
 
@@ -209,6 +211,7 @@ function megaSearchAliases(name: string, mega: string) {
 export function buildSearchGroups(stats: PogoStatRecord[], data: EvolutionData): SpeciesGroup[] {
   const buckets = new Map<string, PogoStatRecord[]>();
   for (const record of stats) {
+    if (record.pokemon_id === 778 && record.form === "Busted") continue;
     const signature = data.signature[`${record.pokemon_id}:${record.form}`] ?? statSignature(record);
     const key = `${record.pokemon_id}:${signature}`;
     const list = buckets.get(key) ?? [];
@@ -226,6 +229,7 @@ export function buildSearchGroups(stats: PogoStatRecord[], data: EvolutionData):
       pokemonId: representative.pokemon_id,
       entries: [representative],
       label: memberLabel(representative, null),
+      aliases: representative.pokemon_id === 778 && representative.form === "Disguised" ? ["ミミッキュ"] : undefined,
     });
   }
 
@@ -287,6 +291,7 @@ function memberLabel(record: PogoStatRecord, mega: string | null) {
   if (record.pokemon_id === 681 && record.form === "Blade") return "ギルガルド(ブレード)";
   if (record.pokemon_id === 774 && record.form === "Meteor") return "メテノ(りゅうせい)";
   if (record.pokemon_id === 774) return "メテノ(コア)";
+  if (record.pokemon_id === 778 && record.form === "Disguised") return "ミミッキュ(ばけたすがた)";
   if (record.form !== "Normal") return `${name} ${formatFormLabel(record.form)}`;
   return name;
 }

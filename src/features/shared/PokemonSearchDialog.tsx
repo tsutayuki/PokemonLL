@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { PokemonLabelFit } from "../../components/PokemonLabelFit";
-import { matchesNameExactly, matchesNameQuery } from "../../lib/pogo/kanaSearch";
+import { matchesNameExactly, nameQueryRank } from "../../lib/pogo/kanaSearch";
 import { speciesDisplayName, speciesLabelParts, type SpeciesGroup } from "../../lib/pogo/research";
 
 export function PokemonSearchDialog({
@@ -36,12 +36,20 @@ export function PokemonSearchDialog({
     }
 
     return groups
-      .filter((group) => {
+      .flatMap((group) => {
         const entry = group.entries[0];
         const english = searchEnglish(entry?.pokemon_name ?? "", entry?.form ?? "");
-        return matchesNameQuery(normalized, speciesDisplayName(group), english, group.pokemonId, group.aliases ?? []);
+        const rank = nameQueryRank(normalized, speciesDisplayName(group), english, group.pokemonId, group.aliases ?? []);
+        return rank == null ? [] : [{ group, rank }];
       })
-      .slice(0, 100);
+      .sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        const length = speciesDisplayName(a.group).length - speciesDisplayName(b.group).length;
+        if (length !== 0) return length;
+        return a.group.pokemonId - b.group.pokemonId || (a.group.label ?? "").localeCompare(b.group.label ?? "", "ja");
+      })
+      .slice(0, 100)
+      .map((item) => item.group);
   }, [counts, groups, query]);
 
   const exactHit = useMemo(() => {
