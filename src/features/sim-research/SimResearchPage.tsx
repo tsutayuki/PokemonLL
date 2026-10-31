@@ -8,7 +8,7 @@ import { bladeFastMove, isAuraWheel, statsUnderCap } from "../../lib/pogo/battle
 import { damageForMove, type PvpMove } from "../../lib/pogo/combat";
 import { MEGA_LEVELS, readMegaLevel, scaleThirdAttack, type MegaLevel } from "../../lib/pogo/megaLevel";
 import { bestMoves } from "../../lib/pogo/moveScore";
-import { recordPokemonPick } from "../../lib/pogo/pokemonPicks";
+import { recordPokemonPick, setActivePickLeague } from "../../lib/pogo/pokemonPicks";
 import { findPvpPokemon, resolveMoves } from "../../lib/pogo/pvpBundle";
 import {
   computeBestRankings,
@@ -195,6 +195,11 @@ function pickStatMax(rows: RankingRow[], key: "attack" | "defense" | "stamina") 
 export function SimResearchPage() {
   const { data, error, cpData, reload } = useResearchData();
   const [leagueId, setLeagueId] = useState<LeagueId>("great");
+
+  useEffect(() => {
+    setActivePickLeague(leagueId);
+    return () => setActivePickLeague(null);
+  }, [leagueId]);
   const [sideA, setSideA] = useState<SideState>(emptySide);
   const [sideB, setSideB] = useState<SideState>(emptySide);
   const [shieldPinned, setShieldPinned] = useState(false);
@@ -335,7 +340,7 @@ export function SimResearchPage() {
                 exactSprite: sprite?.exactSprite,
                 spriteSuffix: sprite?.spriteSuffix,
               };
-              recordPokemonPick(group.pokemonId, group.name);
+              recordPokemonPick(group.pokemonId, group.name, leagueId);
               changeSide(which, (current) => fillSideFromGroup(group, data, cpData.levels, cpData.byLevel, cap, current));
             }}
           />

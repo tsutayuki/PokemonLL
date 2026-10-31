@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EvolutionData } from "../../lib/pogo/evolutionLine";
-import { applyKu6Learnsets, applyMegaPokemon, type SheetCatalog } from "../../lib/pogo/ku6Learnsets";
+import { applyKu6Learnsets, applyMegaPokemon, applySmeargleLearnset, type SheetCatalog } from "../../lib/pogo/ku6Learnsets";
 import { applyMoveEdits, loadMoveEdits, subscribeMoveEdits } from "../../lib/pogo/moveEdits";
 import type { PvpBundle } from "../../lib/pogo/pvpBundle";
 import {
@@ -45,6 +45,7 @@ export function useResearchData() {
         const catalog = (await catalogRes.json()) as SheetCatalog;
         const evolutions = (await evoRes.json()) as EvolutionData;
         bundle = applyKu6Learnsets(bundle, catalog, stats);
+        bundle = applySmeargleLearnset(bundle);
         bundle = applyMegaPokemon(bundle, catalog, evolutions.megas ?? []);
         if (!cancelled) setData({ stats, multipliers, bundle });
       } catch {
