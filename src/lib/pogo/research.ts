@@ -149,8 +149,13 @@ export function groupSpecies(records: PogoStatRecord[]): SpeciesGroup[] {
     });
 }
 
+const FORM_JA: Record<string, string> = {
+  Hisuian: "ヒスイ",
+};
+
 export function formatFormLabel(form: string) {
-  return form === "Normal" ? "通常" : form.replace(/_/g, " ");
+  if (form === "Normal") return "通常";
+  return FORM_JA[form] ?? form.replace(/_/g, " ");
 }
 
 export function getPokemonDisplayName(pokemonId: number, fallback: string) {
