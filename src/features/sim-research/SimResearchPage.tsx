@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Pin } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { LeagueIconButton } from "../../components/LeagueIconButton";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
+import { StackedMon } from "../../components/StackedMon";
 import { PokemonLabelFit } from "../../components/PokemonLabelFit";
 import { bladeFastMove, isAuraWheel, statsUnderCap } from "../../lib/pogo/battleTraits";
+import type { MegaEntry } from "../../lib/pogo/evolutionLine";
+import { cachedBestRankings, fastBreakMark, type FastBreakMark } from "../../lib/pogo/fastBreak";
 import { damageForMove, type PvpMove } from "../../lib/pogo/combat";
 import { MEGA_LEVELS, readMegaLevel, scaleThirdAttack, type MegaLevel } from "../../lib/pogo/megaLevel";
 import { bestMoves } from "../../lib/pogo/moveScore";
@@ -15,7 +18,9 @@ import {
   computeDerivedStats,
   findMaxLevelBuild,
   formatBattleStat,
+  formatPlace,
   formatScp,
+  placeTone,
   leagueCap,
   leagueConfigs,
   displayNameParts,
@@ -27,22 +32,30 @@ import {
   type SpeciesGroup,
 } from "../../lib/pogo/research";
 import {
+  shieldsSpent,
   simulateBattle,
   simulateShieldGrid,
   type ChargeTiming,
   type FighterInput,
+  type FollowPokemon,
   type SimResult,
   type TimelineEvent,
 } from "../../lib/pogo/simulate";
+import { buildLeadScript, countsFromLead, fastCountMax, reconcileOrder, splitSwitchPlan } from "../../lib/pogo/followPlan";
 import { moveBonusEffectLines } from "../../lib/pogo/moveBonusEffect";
 import { TimelineOps, PlanPopup, ThrowPopup, chargedNameAt } from "./TimelineOps";
 import { InitialStatePopup, type InitialState } from "./InitialStatePopup";
 import { TimelineCustom } from "./TimelineCustom";
-import { extendPlanFromTimeline, fillLaggingSide, type TimelineStep } from "../../lib/pogo/timelinePlan";
+import { extendPlanFromTimeline, fillLaggingSide, planTurns, stampSegmentFastTurns, type TimelineStep } from "../../lib/pogo/timelinePlan";
 import { IvBars } from "../shared/IvBars";
 import { useResearchData } from "../shared/useResearchData";
 import { openPokemonSearch } from "../shared/pokemonSearchApi";
-import { FrequentPokemon } from "./FrequentPokemon";
+import { FrequentPokemon, type FrequentPreset } from "./FrequentPokemon";
+import { ChaseFoeSwitch, ChasePanel } from "./ChasePanel";
+import { requestBreakStudy } from "../break-research/breakJump";
+
+/** タイムライン左右の残ゲージ列。false にすると、ゲージを足す前の5列に戻る。 */
+const TIMELINE_ENERGY = true;
 
 const SOZAI_SHADOW_SRC = "/Image/sozai/shadow.png";
 const SOZAI_SHIELD_SRC = "/Image/sozai/shield-ui.png";
@@ -115,7 +128,7 @@ const emptySide: SideState = {
   fastId: "",
   chargedId: "",
   chargedId2: "",
-  megaLevel: 1,
+  megaLevel: 4,
   shields: 0,
   timing: "cct",
   moveMode: "optimal",
@@ -163,6 +176,31 @@ function samePokemon(a: PogoStatRecord | null, b: PogoStatRecord | null) {
   return a?.pokemon_id === b?.pokemon_id && a?.form === b?.form;
 }
 
+function isSimulatorRoute() {
+  const path = window.location.hash.replace(/^#/, "").split("?")[0].replace(/\/+$/, "") || "/sim";
+  return path === "/sim" || path === "/research/sim";
+}
+
+type ChaseTimelineMemory = {
+  live: boolean;
+  lead: TimelineStep[] | null;
+  back: TimelineStep[] | null;
+  foe: TimelineStep[] | null;
+};
+
+const emptyChaseTimeline: ChaseTimelineMemory = { live: false, lead: null, back: null, foe: null };
+
+function cloneSteps(steps: TimelineStep[] | null) {
+  return steps?.map((step) => ({ ...step })) ?? null;
+}
+
+function syncChaseCounts(lead: TimelineStep[]) {
+  const counts = countsFromLead(lead);
+  const nextCounts: Record<string, number> = {};
+  for (const id of counts.charged) nextCounts[id] = (nextCounts[id] ?? 0) + 1;
+  return { fast: counts.fast, order: counts.charged, counts: nextCounts };
+}
+
 function moveShieldSlot(slots: number[], index: number) {
   if (slots.includes(index)) return slots.filter((slot) => slot !== index).sort((a, b) => a - b);
   if (slots.length < 2) return [...slots, index].sort((a, b) => a - b);
@@ -183,6 +221,39 @@ function levelScale(
 }
 
 /** SCP順位が2桁（1～99位）の個体だけから、攻撃・防御・HPの実数値が最大の行を選ぶ。 */
+function breakInputKey(
+  cap: number,
+  sideA: SideState,
+  sideB: SideState,
+  fighterA: ReturnType<typeof packFighter>,
+  fighterB: ReturnType<typeof packFighter>,
+) {
+  if (!fighterA || !fighterB || !sideA.record || !sideB.record) return "";
+  return [
+    cap,
+    sideA.record.pokemon_id,
+    sideA.record.form,
+    sideA.record.base_attack,
+    sideA.record.base_defense,
+    sideA.record.base_stamina,
+    sideA.maxLevel,
+    fighterA.input.fast.id,
+    fighterA.input.attack,
+    fighterA.input.defense,
+    fighterA.input.shadow,
+    sideB.record.pokemon_id,
+    sideB.record.form,
+    sideB.record.base_attack,
+    sideB.record.base_defense,
+    sideB.record.base_stamina,
+    sideB.maxLevel,
+    fighterB.input.fast.id,
+    fighterB.input.attack,
+    fighterB.input.defense,
+    fighterB.input.shadow,
+  ].join("|");
+}
+
 function pickStatMax(rows: RankingRow[], key: "attack" | "defense" | "stamina") {
   const eligible = rows.filter((row) => row.rank <= 99);
   return eligible.reduce<RankingRow | null>((best, row) => {
@@ -190,6 +261,19 @@ function pickStatMax(rows: RankingRow[], key: "attack" | "defense" | "stamina") 
     if (Math.abs(row[key] - best[key]) <= 1e-6 && row.rank < best.rank) return row;
     return best;
   }, null);
+}
+
+/** 後追いで相手の1ターン目を交代（内部は待機）にする。手順があるときはその前に足す。 */
+function opponentInput(
+  base: FighterInput,
+  follow: boolean,
+  script: TimelineStep[] | null,
+  live: boolean,
+  leadSwitch: boolean,
+): FighterInput {
+  const planned = follow && live ? script : null;
+  if (!(follow && leadSwitch)) return planned ? { ...base, timelinePlan: planned } : base;
+  return { ...base, timelinePlan: [{ kind: "wait", show: "交代" }, ...(planned ?? [])] };
 }
 
 export function SimResearchPage() {
@@ -201,85 +285,261 @@ export function SimResearchPage() {
     return () => setActivePickLeague(null);
   }, [leagueId]);
   const [sideA, setSideA] = useState<SideState>(emptySide);
+  const [sideBack, setSideBack] = useState<SideState>(emptySide);
   const [sideB, setSideB] = useState<SideState>(emptySide);
-  const [shieldPinned, setShieldPinned] = useState(false);
+  const [chaseOn, setChaseOn] = useState(false);
+  const [foeLeadSwitch, setFoeLeadSwitch] = useState(false);
+  const [viewSlot, setViewSlot] = useState<"lead" | "back">("back");
+  const [chaseFast, setChaseFast] = useState(0);
+  const [chaseCounts, setChaseCounts] = useState<Record<string, number>>({});
+  const [chaseOrder, setChaseOrder] = useState<string[]>([]);
   const [shieldCustomActive, setShieldCustomActive] = useState(false);
   const [planEditor, setPlanEditor] = useState<null | { kind: "move" | "shield"; side: "a" | "b" }>(null);
   const [throwEditor, setThrowEditor] = useState<null | { side: "a" | "b"; index: number }>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
-  const inlinePinRef = useRef<HTMLButtonElement>(null);
-  const dockObserver = useRef<ResizeObserver | null>(null);
+  const timelineBefore = useRef<{
+    live: boolean;
+    aMode: SideState["timelineMode"];
+    aPlan: TimelineStep[] | null;
+    bMode: SideState["timelineMode"];
+    bPlan: TimelineStep[] | null;
+  } | null>(null);
+  /** 保存したタイムライン手順を、今の計算に使うか。手順自体は消さない。 */
+  const [timelineLive, setTimelineLive] = useState(false);
+  const [chaseTimeline, setChaseTimeline] = useState<ChaseTimelineMemory>(emptyChaseTimeline);
+  const chaseTimelineBefore = useRef<ChaseTimelineMemory | null>(null);
+  const chaseCountsBefore = useRef<{ fast: number; order: string[]; counts: Record<string, number> } | null>(null);
+  const [onSim, setOnSim] = useState(() => isSimulatorRoute());
 
   const cap = leagueCap(leagueId);
-  const fighterA = packFighter(sideA, data, cpData, cap, shieldCustomActive);
-  const fighterB = packFighter(sideB, data, cpData, cap, shieldCustomActive);
+  const chasing = chaseOn && Boolean(sideA.record && sideBack.record);
+  const fighterA = packFighter(sideA, data, cpData, cap, shieldCustomActive, timelineLive && !chasing);
+  const fighterBack = packFighter(sideBack, data, cpData, cap, shieldCustomActive, false);
+  const fighterB = packFighter(sideB, data, cpData, cap, shieldCustomActive, timelineLive && !chasing);
+  const timelineCustomOn = chasing && fighterBack ? chaseTimeline.live : timelineLive && sideA.timelineMode === "custom";
+  const battleA = fighterA
+    ? chaseBattleInput(fighterA, chasing ? fighterBack : null, chaseTimeline.live, chaseTimeline.lead, chaseTimeline.back, chaseFast, chaseOrder)
+    : null;
+
+  useEffect(() => {
+    const sync = () => setOnSim(isSimulatorRoute());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("is-chase", chaseOn && onSim);
+    return () => document.body.classList.remove("is-chase");
+  }, [chaseOn, onSim]);
+
+  useEffect(() => {
+    if (chaseOn) return;
+    setSideA((current) => {
+      if (!current.timelinePlan?.some((step) => step.kind === "switch")) return current;
+      return { ...current, timelineMode: "optimal", timelinePlan: null };
+    });
+  }, [chaseOn]);
 
   const result = useMemo(() => {
-    if (!fighterA || !fighterB) return null;
-    return simulateBattle(fighterA.input, fighterB.input);
-  }, [fighterA, fighterB]);
+    if (!battleA || !fighterB) return null;
+    const foe = opponentInput(fighterB.input, Boolean(battleA.input.follow), chaseTimeline.foe, chaseTimeline.live, foeLeadSwitch);
+    return simulateBattle(battleA.input, foe);
+  }, [battleA, fighterB, chaseTimeline.live, chaseTimeline.foe, foeLeadSwitch]);
 
   const grid = useMemo(() => {
-    if (!fighterA || !fighterB) return null;
-    return simulateShieldGrid(fighterA.input, fighterB.input);
-  }, [fighterA, fighterB]);
+    if (!battleA || !fighterB) return null;
+    const foe = opponentInput(fighterB.input, Boolean(battleA.input.follow), chaseTimeline.foe, chaseTimeline.live, foeLeadSwitch);
+    return simulateShieldGrid(battleA.input, foe);
+  }, [battleA, fighterB, chaseTimeline.live, chaseTimeline.foe, foeLeadSwitch]);
+
+  useEffect(() => {
+    if (!result?.follow) return;
+    if (result.follow.earlyWin) {
+      setViewSlot("lead");
+      return;
+    }
+    if (result.follow.active === "back") setViewSlot("back");
+  }, [result]);
+
+  const showBack = chasing && viewSlot === "back" && Boolean(fighterBack);
+  const viewedSide = showBack ? sideBack : sideA;
+  const viewedFighter = showBack && fighterBack ? fighterBack : fighterA;
+  const selfHp = result?.follow ? (showBack ? result.follow.backHp : result.follow.leadHp) : (result?.hpA ?? 0);
+  const selfMax = result?.follow ? (showBack ? result.follow.backMaxHp : result.follow.leadMaxHp) : (result?.maxHpA ?? 0);
+  const selfEnergy = result?.follow ? (showBack ? result.follow.backEnergy : result.follow.leadEnergy) : (result?.energyA ?? 0);
+
+  const breakKey = breakInputKey(cap, viewedSide, sideB, viewedFighter, fighterB);
+  const breakMarks = useMemo(() => {
+    if (!cpData || !viewedFighter || !fighterB || !viewedSide.record || !sideB.record) return null;
+    const scaleFor = (maxLevel: 50 | 51) => levelScale(cpData, maxLevel);
+    const rowsFor = (record: PogoStatRecord, maxLevel: 50 | 51) => {
+      const scale = scaleFor(maxLevel);
+      return cachedBestRankings(record, scale.levels, scale.byLevel, cap, maxLevel);
+    };
+    const rowsA = rowsFor(viewedSide.record, viewedSide.maxLevel);
+    const rowsB = rowsFor(sideB.record, sideB.maxLevel);
+    return {
+      a: {
+        attack: fastBreakMark(
+          rowsA,
+          viewedFighter.input.fast,
+          viewedFighter.input.attack,
+          fighterB.input.defense,
+          viewedFighter.input.types,
+          fighterB.input.types,
+          viewedFighter.input.shadow,
+          fighterB.input.shadow,
+          "attack",
+        ),
+        defense: fastBreakMark(
+          rowsA,
+          fighterB.input.fast,
+          fighterB.input.attack,
+          viewedFighter.input.defense,
+          fighterB.input.types,
+          viewedFighter.input.types,
+          fighterB.input.shadow,
+          viewedFighter.input.shadow,
+          "defense",
+        ),
+      },
+      b: {
+        attack: fastBreakMark(
+          rowsB,
+          fighterB.input.fast,
+          fighterB.input.attack,
+          viewedFighter.input.defense,
+          fighterB.input.types,
+          viewedFighter.input.types,
+          fighterB.input.shadow,
+          viewedFighter.input.shadow,
+          "attack",
+        ),
+        defense: fastBreakMark(
+          rowsB,
+          viewedFighter.input.fast,
+          viewedFighter.input.attack,
+          fighterB.input.defense,
+          viewedFighter.input.types,
+          fighterB.input.types,
+          viewedFighter.input.shadow,
+          fighterB.input.shadow,
+          "defense",
+        ),
+      },
+    };
+  }, [breakKey, cap, cpData]);
+
+  /** 通常も後追いも、今の計算への適用だけ外す。保存した手順は残す。 */
+  const releaseCustomTimeline = () => {
+    setTimelineLive(false);
+    setChaseTimeline((current) => (current.live ? { ...current, live: false } : current));
+  };
 
   const selectShields = (shieldsA: number, shieldsB: number) => {
+    releaseCustomTimeline();
     setShieldCustomActive(false);
     setSideA((current) => ({ ...current, shields: shieldsA, shieldMode: "optimal" }));
     setSideB((current) => ({ ...current, shields: shieldsB, shieldMode: "optimal" }));
   };
 
   const selectShieldCustom = () => {
+    setTimelineLive(true);
     setShieldCustomActive(true);
     setSideA((current) => ({ ...current, shieldMode: "custom", shields: current.shieldSlots.length }));
     setSideB((current) => ({ ...current, shieldMode: "custom", shields: current.shieldSlots.length }));
   };
 
+  const writeLeadPlan = (fastCount: number, order: string[]) => {
+    if (!chaseTimeline.live || !fighterA) return;
+    const specials = order.flatMap((id) => {
+      const move = fighterA.input.charged.find((item) => item.id === id);
+      return move ? [{ id: move.id, energy: move.energy }] : [];
+    });
+    const built = buildLeadScript({
+      fastId: fighterA.input.fast.id,
+      fastTurns: fighterA.input.fast.turns,
+      fastGain: fighterA.input.fast.energyGain,
+      fastCount,
+      startEnergy: fighterA.input.startEnergy ?? 0,
+      specials,
+    });
+    const followTurns = Math.max(1, fighterBack?.input.fast.turns ?? fighterA.input.fast.turns);
+    setChaseTimeline((current) => {
+      const stamped = stampSegmentFastTurns([...built.steps, { kind: "switch" }, ...(current.back ?? [])], fighterA.input.fast.turns, followTurns);
+      const split = splitSwitchPlan(stamped);
+      return { ...current, lead: split.lead, back: split.back };
+    });
+  };
+
+  const applyChaseCount = (id: string, count: number) => {
+    if (!fighterA) return;
+    const counts = fighterA.input.charged.map((move) => ({
+      id: move.id,
+      count: move.id === id ? count : (chaseCounts[move.id] ?? 0),
+    }));
+    const order = reconcileOrder(chaseOrder, counts);
+    setChaseCounts((current) => ({ ...current, [id]: count }));
+    setChaseOrder(order);
+    writeLeadPlan(chaseFast, order);
+  };
+
+  const changeBack = (next: SideState | ((current: SideState) => SideState)) => {
+    setSideBack((current) => {
+      const resolved = typeof next === "function" ? next(current) : next;
+      if (samePokemon(current.record, resolved.record)) return resolved;
+      setShieldCustomActive(false);
+      setTimelineLive(false);
+      // 初手と相手はそのままなので、交代タイミングの回数は残す。引き先の手順だけ外す。
+      setChaseTimeline((timeline) => ({ ...timeline, back: null }));
+      setViewSlot("back");
+      return { ...clearPlans(resolved), shadow: false };
+    });
+  };
+
+  const swapLeads = () => {
+    if (!sideA.record || !sideBack.record) return;
+    const nextLead = fighterBack;
+    if (chaseTimeline.live && chaseTimeline.back) {
+      const synced = syncChaseCounts(chaseTimeline.back);
+      setChaseFast(synced.fast);
+      setChaseOrder(synced.order);
+      setChaseCounts(synced.counts);
+    } else if (nextLead) {
+      const allowed = new Set(nextLead.input.charged.map((move) => move.id));
+      setChaseFast((count) => Math.min(count, fastCountMax(nextLead.input.fast.turns)));
+      setChaseOrder((order) => order.filter((id) => allowed.has(id)));
+      setChaseCounts((counts) => {
+        const next: Record<string, number> = {};
+        for (const [id, count] of Object.entries(counts)) if (allowed.has(id)) next[id] = count;
+        return next;
+      });
+    }
+    setChaseTimeline((current) => ({ ...current, lead: current.back, back: current.lead }));
+    setSideA(sideBack);
+    setSideBack(sideA);
+  };
+
   const changeSide = (which: "a" | "b", next: SideState | ((current: SideState) => SideState)) => {
     const apply = (current: SideState) => (typeof next === "function" ? next(current) : next);
     const setThis = which === "a" ? setSideA : setSideB;
-    const setOther = which === "a" ? setSideB : setSideA;
     setThis((current) => {
       const resolved = apply(current);
       if (samePokemon(current.record, resolved.record)) return resolved;
       setShieldCustomActive(false);
-      setOther((other) => clearPlans(other));
-      return clearPlans(resolved);
-    });
-  };
-
-  const toggleShieldPin = (fromDock = false) => {
-    setShieldPinned((current) => {
-      if (current && fromDock) {
-        window.setTimeout(() => inlinePinRef.current?.focus({ preventScroll: true }), 0);
+      setTimelineLive(false);
+      if (which === "a") {
+        setChaseTimeline(emptyChaseTimeline);
+        setViewSlot("back");
+        setChaseFast(0);
+        setChaseCounts({});
+        setChaseOrder([]);
+      } else {
+        setChaseTimeline((timeline) => ({ ...timeline, foe: null }));
       }
-      return !current;
+      return { ...clearPlans(resolved), shadow: false };
     });
   };
-
-  const setDockNode = useCallback((node: HTMLDivElement | null) => {
-    dockObserver.current?.disconnect();
-    dockObserver.current = null;
-    if (!node) {
-      document.documentElement.style.removeProperty("--shield-dock-h");
-      return;
-    }
-    const apply = () => {
-      document.documentElement.style.setProperty("--shield-dock-h", `${Math.ceil(node.getBoundingClientRect().height)}px`);
-    };
-    apply();
-    const observer = new ResizeObserver(apply);
-    observer.observe(node);
-    dockObserver.current = observer;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      dockObserver.current?.disconnect();
-      document.documentElement.style.removeProperty("--shield-dock-h");
-    };
-  }, []);
 
   return (
     <div className="page-iv sim-page">
@@ -288,6 +548,17 @@ export function SimResearchPage() {
           <ArrowLeft size={16} />
           ホーム
         </a>
+        <button
+          type="button"
+          className={`chase-mode-btn${chaseOn ? " is-on" : ""}`}
+          aria-pressed={chaseOn}
+          onClick={() => {
+            setTimelineOpen(false);
+            setChaseOn((on) => !on);
+          }}
+        >
+          後追いモード
+        </button>
       </div>
 
       {error ? (
@@ -330,8 +601,12 @@ export function SimResearchPage() {
 
           <FrequentPokemon
             stats={data.stats}
+            megas={data.megas}
             league={leagueId}
-            onPick={(record, label, which, sprite) => {
+            levels={cpData.levels}
+            byLevel={cpData.byLevel}
+            chase={chaseOn}
+            onPick={(record, label, which, sprite, preset) => {
               const group: SpeciesGroup = {
                 name: `${record.pokemon_id}:${record.form}`,
                 pokemonId: record.pokemon_id,
@@ -340,20 +615,24 @@ export function SimResearchPage() {
                 exactSprite: sprite?.exactSprite,
                 spriteSuffix: sprite?.spriteSuffix,
               };
-              recordPokemonPick(group.pokemonId, group.name, leagueId);
-              changeSide(which, (current) => fillSideFromGroup(group, data, cpData.levels, cpData.byLevel, cap, current));
+              recordPokemonPick(record.pokemon_id, `${record.pokemon_id}:${record.form}`, leagueId);
+              const filled = (current: SideState) =>
+                applyPreset(fillSideFromGroup(group, data, cpData.levels, cpData.byLevel, cap, current), preset);
+              if (which === "back") changeBack(filled);
+              else changeSide(which, filled);
             }}
           />
 
-          <div className="duel-grid">
+          <div className={`duel-grid${chaseOn ? " is-chase" : ""}`}>
             <FighterCard
-              title="自分"
+              title={chaseOn ? "初手" : "自分"}
               tone="self"
               side={sideA}
               data={data}
               cap={cap}
               levels={cpData.levels}
               byLevel={cpData.byLevel}
+              initialHint={!chaseOn}
               onChange={(next) => changeSide("a", next)}
             />
             <FighterCard
@@ -364,21 +643,67 @@ export function SimResearchPage() {
               cap={cap}
               levels={cpData.levels}
               byLevel={cpData.byLevel}
+              initialHint={!chaseOn}
               onChange={(next) => changeSide("b", next)}
             />
+            {chaseOn ? (
+              <button type="button" className="chase-swap" disabled={!sideA.record || !sideBack.record} onClick={swapLeads}>
+                初手・裏 入れ替え
+              </button>
+            ) : null}
+            {chaseOn ? <div className="chase-grid-bridge" aria-hidden="true" /> : null}
+            {chaseOn ? (
+              <FighterCard
+                title="引き先"
+                tone="self"
+                side={sideBack}
+                data={data}
+                cap={cap}
+                levels={cpData.levels}
+                byLevel={cpData.byLevel}
+                initialHint={!chaseOn}
+                onChange={changeBack}
+              />
+            ) : null}
+            {chaseOn && fighterA ? (
+              <div className="chase-side">
+                <ChasePanel
+                  fastName={fighterA.input.fast.name}
+                  fastCount={Math.min(chaseFast, fastCountMax(fighterA.input.fast.turns))}
+                  fastMax={fastCountMax(fighterA.input.fast.turns)}
+                  charges={fighterA.input.charged.map((move) => ({
+                    id: move.id,
+                    name: move.name,
+                    count: Math.min(3, chaseCounts[move.id] ?? 0),
+                  }))}
+                  order={chaseOrder}
+                  short={battleA?.short ?? false}
+                  onFast={(count) => {
+                    setChaseFast(count);
+                    writeLeadPlan(count, chaseOrder);
+                  }}
+                  onCharge={applyChaseCount}
+                  onOrder={(order) => {
+                    setChaseOrder(order);
+                    writeLeadPlan(chaseFast, order);
+                  }}
+                />
+                <ChaseFoeSwitch on={foeLeadSwitch} onChange={setFoeLeadSwitch} />
+              </div>
+            ) : null}
           </div>
 
           {result && fighterA && fighterB ? (
             <>
               <section className="panel result-panel sim-result" aria-label="この対面">
                 <div className="sim-result-shadows">
-                  {sideA.record ? (
+                  {viewedSide.record ? (
                     <button
                       type="button"
                       className="league-choice sim-shadow-toggle"
-                      aria-pressed={sideA.shadow}
-                      aria-label={sideA.shadow ? "自分のシャドウを外す" : "自分をシャドウにする"}
-                      onClick={() => setSideA((current) => ({ ...current, shadow: !current.shadow }))}
+                      aria-pressed={viewedSide.shadow}
+                      aria-label={viewedSide.shadow ? "自分のシャドウを外す" : "自分をシャドウにする"}
+                      onClick={() => (showBack ? setSideBack : setSideA)((current) => ({ ...current, shadow: !current.shadow }))}
                     >
                       <ShadowMark />
                     </button>
@@ -400,19 +725,30 @@ export function SimResearchPage() {
                 <div className="sim-matchup">
                   <MatchupSide
                     word={result.winner === "draw" ? null : result.winner === "a" ? "WIN" : "LOSE"}
-                    side={sideA}
-                    hp={result.hpA}
-                    max={result.maxHpA}
-                    cp={fighterA.build.cp}
-                    scp={formatScp(fighterA.build.statProduct)}
-                    attack={fighterA.build.attack}
-                    defense={fighterA.build.defense}
-                    stamina={fighterA.build.stamina}
-                    energy={result.energyA}
-                    hits={matchupMoveHits(fighterA.input, fighterB.input, fighterA.thirdMove?.id ?? null)}
+                    onApplyIv={(ivs) => (showBack ? setSideBack : setSideA)((current) => ({ ...current, ...ivs }))}
+                    side={viewedSide}
+                    rear={chasing && sideA.record && sideBack.record ? (showBack ? sideA : sideBack) : null}
+                    view={chasing ? viewSlot : null}
+                    onView={chasing ? setViewSlot : undefined}
+                    hp={selfHp}
+                    max={selfMax}
+                    cp={(viewedFighter ?? fighterA).build.cp}
+                    scp={formatScp((viewedFighter ?? fighterA).build.statProduct)}
+                    attack={(viewedFighter ?? fighterA).build.attack}
+                    defense={(viewedFighter ?? fighterA).build.defense}
+                    stamina={(viewedFighter ?? fighterA).build.stamina}
+                    energy={selfEnergy}
+                    shields={shieldsSpent(result.timeline, "a")}
+                    hits={matchupMoveHits((viewedFighter ?? fighterA).input, fighterB.input, (viewedFighter ?? fighterA).thirdMove?.id ?? null)}
+                    attackBreak={breakMarks?.a.attack ?? null}
+                    defenseBreak={breakMarks?.a.defense ?? null}
+                    leagueId={leagueId}
+                    megas={data?.megas ?? []}
+                    foe={sideB}
                   />
                   <MatchupSide
                     word={result.winner === "draw" ? null : result.winner === "b" ? "WIN" : "LOSE"}
+                    onApplyIv={(ivs) => setSideB((current) => ({ ...current, ...ivs }))}
                     side={sideB}
                     hp={result.hpB}
                     max={result.maxHpB}
@@ -422,42 +758,29 @@ export function SimResearchPage() {
                     defense={fighterB.build.defense}
                     stamina={fighterB.build.stamina}
                     energy={result.energyB}
-                    hits={matchupMoveHits(fighterB.input, fighterA.input, fighterB.thirdMove?.id ?? null)}
+                    shields={shieldsSpent(result.timeline, "b")}
+                    hits={matchupMoveHits(fighterB.input, (viewedFighter ?? fighterA).input, fighterB.thirdMove?.id ?? null)}
+                    attackBreak={breakMarks?.b.attack ?? null}
+                    defenseBreak={breakMarks?.b.defense ?? null}
+                    leagueId={leagueId}
+                    megas={data?.megas ?? []}
+                    foe={viewedSide}
                   />
                 </div>
-                <p className="note">{result.turns}ターン</p>
               </section>
 
               {grid && sideA.record && sideB.record ? (
                 <div className="shield-block">
                   <ShieldGridView
-                    variant="inline"
                     sideA={sideA}
+                    rear={chasing ? sideBack : null}
                     sideB={sideB}
                     grid={grid}
-                    pinned={shieldPinned}
-                    pinRef={inlinePinRef}
-                    onTogglePin={() => toggleShieldPin(false)}
                     onSelect={selectShields}
                     customActive={shieldCustomActive}
                     onCustom={selectShieldCustom}
                   />
                   <p className="note">マスを押すと、その枚数の結果に切り替わります。自分の枚数が縦、相手が横です。</p>
-                </div>
-              ) : null}
-              {shieldPinned && grid && sideA.record && sideB.record ? (
-                <div className="shield-dock" ref={setDockNode}>
-                  <ShieldGridView
-                    variant="dock"
-                    sideA={sideA}
-                    sideB={sideB}
-                    grid={grid}
-                    pinned={shieldPinned}
-                    onTogglePin={() => toggleShieldPin(true)}
-                    onSelect={selectShields}
-                    customActive={shieldCustomActive}
-                    onCustom={selectShieldCustom}
-                  />
                 </div>
               ) : null}
 
@@ -466,56 +789,207 @@ export function SimResearchPage() {
               <TimelineOps
                 sideA={sideA}
                 sideB={sideB}
-                movesA={fighterA.input.charged}
+                movesA={chasing && fighterBack ? fighterBack.input.charged : fighterA.input.charged}
                 movesB={fighterB.input.charged}
                 timeline={result.timeline}
-                onChangeA={(next) => changeSide("a", next)}
-                onChangeB={(next) => changeSide("b", next)}
+                moveA={chasing ? sideBack : undefined}
+                onChangeMoveA={
+                  chasing
+                    ? (next) => {
+                        if (next.timing !== sideBack.timing || next.moveMode !== sideBack.moveMode) releaseCustomTimeline();
+                        changeBack(next);
+                      }
+                    : undefined
+                }
+                onChangeA={(next) => {
+                  if (next.timing !== sideA.timing || next.moveMode !== sideA.moveMode) releaseCustomTimeline();
+                  changeSide("a", next);
+                }}
+                onChangeB={(next) => {
+                  if (next.timing !== sideB.timing || next.moveMode !== sideB.moveMode) releaseCustomTimeline();
+                  changeSide("b", next);
+                }}
                 onEdit={setPlanEditor}
                 onUseCustomShield={() => setShieldCustomActive(true)}
               />
-              <section className="panel battle-sheet-panel">
+              <section className={`panel battle-sheet-panel${timelineCustomOn ? " is-custom-live" : ""}`}>
                 <BattleSheet
                   events={result.timeline}
+                  koMissA={timelineCustomOn ? result.koMissA : []}
+                  koMissB={timelineCustomOn ? result.koMissB : []}
                   onCharged={(side, index) => setThrowEditor({ side, index })}
                 />
               </section>
+              <p className="timeline-effect-note">
+                確率の追加効果・スワイプ調整は
+                <br />
+                タイムラインの技2をタップすると設定できます
+              </p>
               <button
                 type="button"
-                className={`timeline-custom-open${sideA.timelineMode === "custom" ? " is-on" : ""}`}
+                className={`timeline-custom-open${timelineCustomOn ? " is-on" : ""}`}
                 onClick={() => {
-                  const nextA = extendPlanFromTimeline(
-                    sideA.timelineMode === "custom" ? sideA.timelinePlan : null,
-                    result.timeline,
-                    "a",
-                  );
-                  const nextB = extendPlanFromTimeline(
-                    sideB.timelineMode === "custom" ? sideB.timelinePlan : null,
-                    result.timeline,
-                    "b",
-                  );
-                  const filled = fillLaggingSide(
-                    nextA,
-                    Math.max(1, fighterA.input.fast.turns),
-                    fighterA.input.fast.id,
-                    fighterA.input.fast.energyGain,
-                    fighterA.input.charged,
-                    nextB,
-                    Math.max(1, fighterB.input.fast.turns),
-                    fighterB.input.fast.id,
-                    fighterB.input.fast.energyGain,
-                    fighterB.input.charged,
-                  );
-                  setSideA((current) => ({ ...current, timelineMode: "custom", timelinePlan: filled.stepsA }));
-                  setSideB((current) => ({ ...current, timelineMode: "custom", timelinePlan: filled.stepsB }));
+                  if (chasing && fighterA && fighterBack && fighterB) {
+                    chaseTimelineBefore.current = {
+                      live: chaseTimeline.live,
+                      lead: cloneSteps(chaseTimeline.lead),
+                      back: cloneSteps(chaseTimeline.back),
+                      foe: cloneSteps(chaseTimeline.foe),
+                    };
+                    chaseCountsBefore.current = { fast: chaseFast, order: [...chaseOrder], counts: { ...chaseCounts } };
+                    const saved = chaseTimeline.lead && chaseTimeline.foe;
+                    let stepsA: TimelineStep[];
+                    let stepsB: TimelineStep[];
+                    const leadTurns = Math.max(1, fighterA.input.fast.turns);
+                    const followTurns = Math.max(1, fighterBack.input.fast.turns);
+                    if (saved && !chaseTimeline.live) {
+                      stepsA = stampSegmentFastTurns(
+                        [...(chaseTimeline.lead ?? []), { kind: "switch" }, ...(chaseTimeline.back ?? [])],
+                        leadTurns,
+                        followTurns,
+                      );
+                      stepsB = chaseTimeline.foe ?? [];
+                    } else {
+                      const switchStep: TimelineStep = { kind: "switch" };
+                      const baseA: TimelineStep[] | null = chaseTimeline.live && chaseTimeline.lead
+                        ? [...chaseTimeline.lead, switchStep, ...(chaseTimeline.back ?? [])]
+                        : null;
+                      const nextA = extendPlanFromTimeline(baseA, result.timeline, "a");
+                      const nextB = extendPlanFromTimeline(chaseTimeline.live ? chaseTimeline.foe : null, result.timeline, "b");
+                      const withSwitch: TimelineStep[] = nextA.some((step) => step.kind === "switch") ? nextA : [...nextA, switchStep];
+                      const filled = fillLaggingSide(
+                        stampSegmentFastTurns(withSwitch, leadTurns, followTurns),
+                        leadTurns,
+                        fighterA.input.fast.id,
+                        fighterA.input.fast.energyGain,
+                        fighterA.input.charged,
+                        nextB,
+                        Math.max(1, fighterB.input.fast.turns),
+                        fighterB.input.fast.id,
+                        fighterB.input.fast.energyGain,
+                        fighterB.input.charged,
+                        { lockA: true },
+                      );
+                      stepsA = stampSegmentFastTurns(filled.stepsA, leadTurns, followTurns);
+                      stepsB = filled.stepsB;
+                    }
+                    const split = splitSwitchPlan(stepsA);
+                    setChaseTimeline({ live: true, lead: split.lead, back: split.back, foe: stepsB });
+                    const synced = syncChaseCounts(split.lead);
+                    setChaseFast(synced.fast);
+                    setChaseOrder(synced.order);
+                    setChaseCounts(synced.counts);
+                    setTimelineOpen(true);
+                    return;
+                  }
+                  timelineBefore.current = {
+                    live: timelineLive,
+                    aMode: sideA.timelineMode,
+                    aPlan: sideA.timelinePlan?.map((step) => ({ ...step })) ?? null,
+                    bMode: sideB.timelineMode,
+                    bPlan: sideB.timelinePlan?.map((step) => ({ ...step })) ?? null,
+                  };
+                  const saved =
+                    sideA.timelineMode === "custom" &&
+                    sideB.timelineMode === "custom" &&
+                    sideA.timelinePlan &&
+                    sideB.timelinePlan;
+                  let stepsA: TimelineStep[];
+                  let stepsB: TimelineStep[];
+                  if (saved && !timelineLive) {
+                    stepsA = sideA.timelinePlan ?? [];
+                    stepsB = sideB.timelinePlan ?? [];
+                  } else {
+                    const nextA = extendPlanFromTimeline(
+                      sideA.timelineMode === "custom" ? sideA.timelinePlan : null,
+                      result.timeline,
+                      "a",
+                    );
+                    const nextB = extendPlanFromTimeline(
+                      sideB.timelineMode === "custom" ? sideB.timelinePlan : null,
+                      result.timeline,
+                      "b",
+                    );
+                    const filled = fillLaggingSide(
+                      nextA,
+                      Math.max(1, fighterA.input.fast.turns),
+                      fighterA.input.fast.id,
+                      fighterA.input.fast.energyGain,
+                      fighterA.input.charged,
+                      nextB,
+                      Math.max(1, fighterB.input.fast.turns),
+                      fighterB.input.fast.id,
+                      fighterB.input.fast.energyGain,
+                      fighterB.input.charged,
+                    );
+                    stepsA = filled.stepsA;
+                    stepsB = filled.stepsB;
+                  }
+                  const boundary = stepsA.findIndex((step) => step.kind === "switch");
+                  if (boundary >= 0) stepsA = stepsA.slice(0, boundary);
+                  setSideA((current) => ({ ...current, timelineMode: "custom", timelinePlan: stepsA }));
+                  setSideB((current) => ({ ...current, timelineMode: "custom", timelinePlan: stepsB }));
+                  setTimelineLive(true);
                   setTimelineOpen(true);
                 }}
               >
-                タイムラインカスタム
+                {timelineCustomOn ? "タイムラインカスタム中！" : "タイムラインカスタム"}
               </button>
+              <p className="timeline-effect-note">「待機」を挿入するとターンをズラしたシミュレートが可能です</p>
               </div>
-              {timelineOpen && sideA.timelinePlan && sideB.timelinePlan ? (
+              {timelineOpen && chasing && fighterA && fighterBack && fighterB && chaseTimeline.lead && chaseTimeline.foe ? (
                 <TimelineCustom
+                  shownTurn={result.turns}
+                  sideA={{
+                    label: sideA.label,
+                    fast: fighterA.input.fast,
+                    charged: fighterA.input.charged,
+                    plan: stampSegmentFastTurns(
+                      [...chaseTimeline.lead, { kind: "switch" }, ...(chaseTimeline.back ?? []).filter((step) => step.kind !== "switch")],
+                      fighterA.input.fast.turns,
+                      fighterBack.input.fast.turns,
+                    ),
+                  }}
+                  sideB={{
+                    label: sideB.label,
+                    fast: fighterB.input.fast,
+                    charged: fighterB.input.charged,
+                    plan: chaseTimeline.foe,
+                  }}
+                  benchA={{
+                    label: sideBack.label,
+                    fast: fighterBack.input.fast,
+                    charged: fighterBack.input.charged,
+                    plan: chaseTimeline.back ?? [],
+                  }}
+                  chargeFill={typeChargeFill}
+                  moveWash={typeWash}
+                  onChangeA={(plan) => {
+                    const split = splitSwitchPlan(plan);
+                    setChaseTimeline((current) => ({ ...current, live: true, lead: split.lead, back: split.back }));
+                    const synced = syncChaseCounts(split.lead);
+                    setChaseFast(synced.fast);
+                    setChaseOrder(synced.order);
+                    setChaseCounts(synced.counts);
+                  }}
+                  onChangeB={(plan) => setChaseTimeline((current) => ({ ...current, foe: plan }))}
+                  onClose={() => setTimelineOpen(false)}
+                  onDiscard={() => {
+                    const snap = chaseTimelineBefore.current;
+                    const counts = chaseCountsBefore.current;
+                    if (snap) setChaseTimeline(snap);
+                    if (counts) {
+                      setChaseFast(counts.fast);
+                      setChaseOrder(counts.order);
+                      setChaseCounts(counts.counts);
+                    }
+                    setTimelineOpen(false);
+                  }}
+                />
+              ) : null}
+              {timelineOpen && !chasing && sideA.timelinePlan && sideB.timelinePlan ? (
+                <TimelineCustom
+                  shownTurn={result.turns}
                   sideA={{
                     label: sideA.label,
                     fast: fighterA.input.fast,
@@ -533,17 +1007,35 @@ export function SimResearchPage() {
                   onChangeA={(plan) => setSideA((current) => ({ ...current, timelineMode: "custom", timelinePlan: plan }))}
                   onChangeB={(plan) => setSideB((current) => ({ ...current, timelineMode: "custom", timelinePlan: plan }))}
                   onClose={() => setTimelineOpen(false)}
+                  onDiscard={() => {
+                    const snap = timelineBefore.current;
+                    if (snap) {
+                      setTimelineLive(snap.live);
+                      setSideA((current) => ({ ...current, timelineMode: snap.aMode, timelinePlan: snap.aPlan }));
+                      setSideB((current) => ({ ...current, timelineMode: snap.bMode, timelinePlan: snap.bPlan }));
+                    }
+                    setTimelineOpen(false);
+                  }}
                 />
               ) : null}
               {planEditor ? (
                 <PlanPopup
                   kind={planEditor.kind}
-                  side={planEditor.side === "a" ? sideA : sideB}
-                  moves={planEditor.side === "a" ? fighterA.input.charged : fighterB.input.charged}
+                  title={chasing && planEditor.kind === "move" && planEditor.side === "a" ? "技選択：引き先" : undefined}
+                  side={chasing && planEditor.kind === "move" && planEditor.side === "a" ? sideBack : planEditor.side === "a" ? sideA : sideB}
+                  moves={
+                    chasing && planEditor.kind === "move" && planEditor.side === "a" && fighterBack
+                      ? fighterBack.input.charged
+                      : planEditor.side === "a"
+                        ? fighterA.input.charged
+                        : fighterB.input.charged
+                  }
                   timeline={result.timeline}
                   actor={planEditor.side}
                   onClose={() => setPlanEditor(null)}
-                  onChange={(next) => changeSide(planEditor.side, next)}
+                  onChange={(next) =>
+                    chasing && planEditor.kind === "move" && planEditor.side === "a" ? changeBack(next) : changeSide(planEditor.side, next)
+                  }
                 />
               ) : null}
               {throwEditor ? (
@@ -588,60 +1080,40 @@ export function SimResearchPage() {
 }
 
 function ShieldGridView({
-  variant,
   sideA,
+  rear,
   sideB,
   grid,
-  pinned,
-  pinRef,
-  onTogglePin,
   onSelect,
   customActive,
   onCustom,
 }: {
-  variant: "inline" | "dock";
   sideA: SideState;
+  rear: SideState | null;
   sideB: SideState;
   grid: SimResult[][];
-  pinned?: boolean;
-  pinRef?: Ref<HTMLButtonElement>;
-  onTogglePin?: () => void;
   onSelect: (shieldsA: number, shieldsB: number) => void;
   customActive: boolean;
   onCustom: () => void;
 }) {
+  const [warn, setWarn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!warn) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".shield-mismatch") || target.closest(".shield-mismatch-pop")) return;
+      setWarn(null);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [warn]);
   if (!sideA.record || !sideB.record) return null;
-  const dockOnly = variant === "dock";
-  const label = dockOnly ? "画面下部に固定した対面表" : "対面表";
   return (
-    <section className={`panel shield-panel${dockOnly ? " is-dock-only" : ""}`} aria-label={label}>
-      {!dockOnly ? (
-        <div className="shield-panel-head">
-          <h2 className="shield-panel-title">対面表</h2>
-          <button
-            ref={pinRef}
-            type="button"
-            className="league-choice shield-pin-toggle"
-            aria-pressed={Boolean(pinned)}
-            aria-label={pinned ? "画面固定を外す" : "画面下部に固定"}
-            onClick={onTogglePin}
-          >
-            <Pin size={13} aria-hidden="true" />
-          </button>
-        </div>
-      ) : (
-        <div className="shield-dock-ear">
-          <button
-            type="button"
-            className="league-choice shield-pin-toggle is-dock"
-            aria-pressed={Boolean(pinned)}
-            aria-label="画面固定を外す"
-            onClick={onTogglePin}
-          >
-            <Pin size={14} aria-hidden="true" />
-          </button>
-        </div>
-      )}
+    <section className="panel shield-panel" aria-label="対面表">
+      <div className="shield-panel-head">
+        <h2 className="shield-panel-title">対面表</h2>
+      </div>
       <div className="shield-grid" role="grid" aria-label="シールド評価">
         <button
           type="button"
@@ -659,6 +1131,17 @@ function ShieldGridView({
             alt=""
             size={22}
           />
+          {rear?.record ? (
+            <PokemonDotSprite
+              className="corner-rear"
+              pokemonId={rear.record.pokemon_id}
+              form={rear.exactSprite ? undefined : rear.record.form}
+              exact={rear.exactSprite}
+              spriteSuffix={rear.spriteSuffix}
+              alt=""
+              size={16}
+            />
+          ) : null}
           <PokemonDotSprite
             className="corner-foe"
             pokemonId={sideB.record.pokemon_id}
@@ -683,17 +1166,50 @@ function ShieldGridView({
           ...row.map((cell, shieldsB) => {
             const selected = !customActive && sideA.shields === shieldsA && sideB.shields === shieldsB;
             const tone = cell.rating > 100 ? "win" : cell.rating < 100 ? "lose" : "draw";
+            const usedA = shieldsSpent(cell.timeline, "a");
+            const usedB = shieldsSpent(cell.timeline, "b");
+            const mismatch = usedA !== shieldsA || usedB !== shieldsB;
+            const warnKey = `${shieldsA}-${shieldsB}`;
             return (
               <button
-                key={`${shieldsA}-${shieldsB}`}
+                key={warnKey}
                 type="button"
                 className={`shield-cell is-${tone}${selected ? " is-selected" : ""}`}
                 style={{ background: shieldFill(cell.rating) }}
                 aria-pressed={selected}
                 aria-label={`自分${shieldsA} 相手${shieldsB} ${cell.rating}`}
-                onClick={() => onSelect(shieldsA, shieldsB)}
+                onClick={() => {
+                  setWarn(null);
+                  onSelect(shieldsA, shieldsB);
+                }}
               >
                 <strong className="num">{cell.rating}</strong>
+                {mismatch ? (
+                  <span
+                    role="button"
+                    tabIndex={selected ? 0 : -1}
+                    className="shield-mismatch"
+                    aria-label="シールド枚数の差"
+                    onClick={(event) => {
+                      if (!selected) return;
+                      event.stopPropagation();
+                      setWarn(warn === warnKey ? null : warnKey);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (selected) setWarn(warn === warnKey ? null : warnKey);
+                    }}
+                  >
+                    !
+                  </span>
+                ) : null}
+                {selected && warn === warnKey ? (
+                  <span className="shield-mismatch-pop" role="dialog">
+                    ダメージ最適化の結果シールドの枚数に差があります
+                  </span>
+                ) : null}
               </button>
             );
           }),
@@ -709,6 +1225,7 @@ function packFighter(
   cpData: ReturnType<typeof useResearchData>["cpData"],
   cap: number,
   shieldCustomActive = false,
+  timelineLive = false,
 ) {
   if (!data || !cpData || !side.record) return null;
   const entry = side.record;
@@ -742,7 +1259,7 @@ function packFighter(
     timing: side.timing,
     applyChanceBuffs: side.applyChanceBuffs,
     chargedQueue: side.moveMode === "custom" ? side.moveSlots : null,
-    timelinePlan: side.timelineMode === "custom" ? side.timelinePlan : null,
+    timelinePlan: timelineLive && side.timelineMode === "custom" ? side.timelinePlan : null,
     shieldThrows: side.shieldMode === "custom" && shieldCustomActive ? side.shieldSlots : null,
     throwTweaks: side.throwTweaks,
     speciesId: entry.pokemon_id,
@@ -791,6 +1308,21 @@ function packFighter(
   return { name: side.label || entry.pokemon_name, pvp, build, fasts, chargedMoves, thirdMove: thirdBase, input };
 }
 
+function applyPreset(side: SideState, preset?: FrequentPreset) {
+  if (!preset) return side;
+  return {
+    ...side,
+    atkIv: preset.atkIv,
+    defIv: preset.defIv,
+    staIv: preset.staIv,
+    shadow: preset.shadow,
+    fastId: preset.fastId || side.fastId,
+    chargedId: preset.chargedId || side.chargedId,
+    chargedId2: preset.chargedId2 || side.chargedId2,
+    megaLevel: preset.megaLevel ?? side.megaLevel,
+  };
+}
+
 function fillSideFromGroup(
   group: SpeciesGroup,
   data: NonNullable<ReturnType<typeof useResearchData>["data"]>,
@@ -818,6 +1350,7 @@ function fillSideFromGroup(
     fastId: rankedFast[0]?.id ?? "",
     chargedId: rankedCharged[0]?.id ?? "",
     chargedId2: entry.pokemon_id === 235 ? "" : (rankedCharged[1]?.id ?? ""),
+    shadow: false,
     megaLevel: 1,
     maxLevel: 51,
     atkIv: best?.atkIv ?? current.atkIv,
@@ -835,6 +1368,7 @@ function FighterCard({
   levels,
   byLevel,
   onChange,
+  initialHint = false,
 }: {
   title: string;
   tone: "self" | "foe";
@@ -844,6 +1378,7 @@ function FighterCard({
   levels: number[];
   byLevel: Map<string, number>;
   onChange: (next: SideState | ((current: SideState) => SideState)) => void;
+  initialHint?: boolean;
 }) {
   const packed = packFighter(side, data, { levels, byLevel }, cap);
   const fasts = packed?.fasts ?? [];
@@ -861,6 +1396,9 @@ function FighterCard({
   const types = packed?.pvp.types ?? [];
   const fastMove = fasts.find((move) => move.id === fastValue) ?? fasts[0] ?? null;
   const [initialOpen, setInitialOpen] = useState(false);
+  const placedKey = side.record ? `${side.record.pokemon_id}:${side.record.form}` : "";
+  const [initialSpentKey, setInitialSpentKey] = useState("");
+  const initialArm = placedKey !== "" && initialSpentKey !== placedKey;
   const typeStyle: CSSProperties | undefined = types.length
     ? ({
         "--type-main": typePastel(types[0]),
@@ -1007,11 +1545,19 @@ function FighterCard({
           exactSprite={side.exactSprite}
           spriteSuffix={side.spriteSuffix}
           label={side.label}
+          chaseHint={initialHint}
           maxHp={stats.stamina}
           fastName={fastMove?.name ?? "ノーマルアタック"}
           fastGain={fastMove?.energyGain ?? 0}
           state={initialStateOf(side)}
-          onChange={(next: InitialState) => onChange({ ...side, ...next })}
+          onChange={(next: InitialState, source) => {
+            if (source === "input" && initialArm) {
+              setInitialSpentKey(placedKey);
+              onChange({ ...side, ...next, initialOn: true });
+              return;
+            }
+            onChange({ ...side, ...next });
+          }}
           onClose={() => setInitialOpen(false)}
         />
       ) : null}
@@ -1056,6 +1602,8 @@ type TurnRow = {
   line: number;
   hpA: number;
   hpB: number;
+  energyA: number;
+  energyB: number;
   a: TimelineEvent | null;
   b: TimelineEvent | null;
   aNote: TimelineEvent | null;
@@ -1086,6 +1634,8 @@ function buildSheet(events: TimelineEvent[]) {
         line,
         hpA: end?.hpA ?? 0,
         hpB: end?.hpB ?? 0,
+        energyA: end?.energyA ?? 0,
+        energyB: end?.energyB ?? 0,
         a: null,
         b: null,
         aNote: null,
@@ -1127,6 +1677,8 @@ function buildSheet(events: TimelineEvent[]) {
     line: row.line,
     hpA: row.hpA,
     hpB: row.hpB,
+    energyA: row.energyA,
+    energyB: row.energyB,
     charge: chargeKeys.has(row.key),
     guardA: receivedGuard(row, "a"),
     guardB: receivedGuard(row, "b"),
@@ -1253,21 +1805,40 @@ function moveSegments(turns: TurnRow[], actor: "a" | "b", chargeKeys: Set<string
 
 function BattleSheet({
   events,
+  koMissA = [],
+  koMissB = [],
   onCharged,
 }: {
   events: TimelineEvent[];
+  koMissA?: number[];
+  koMissB?: number[];
   onCharged: (side: "a" | "b", index: number) => void;
 }) {
   const rows = buildSheet(events);
+  const missA = new Set(koMissA);
+  const missB = new Set(koMissB);
   return (
-    <table className="battle-sheet" aria-label="行動">
+      <table className={`battle-sheet${TIMELINE_ENERGY ? " shows-energy" : ""}`} aria-label="行動">
       <colgroup>
         <col className="col-hp" />
+        {TIMELINE_ENERGY ? <col className="col-energy" /> : null}
         <col className="col-move" />
         <col className="col-turn" />
         <col className="col-move" />
+        {TIMELINE_ENERGY ? <col className="col-energy" /> : null}
         <col className="col-hp" />
       </colgroup>
+      <thead>
+        <tr>
+          <th className="hp">HP</th>
+          {TIMELINE_ENERGY ? <th className="energy">EN</th> : null}
+          <th className="move" />
+          <th className="turn" />
+          <th className="move" />
+          {TIMELINE_ENERGY ? <th className="energy">EN</th> : null}
+          <th className="hp">HP</th>
+        </tr>
+      </thead>
       <tbody>
         {rows.map((row, index) => {
           const prev = rows[index - 1];
@@ -1284,6 +1855,18 @@ function BattleSheet({
           while (rows[turnEnd + 1]?.turn === row.turn) turnEnd += 1;
           const turnHasCharge = rows.slice(turnStart, turnEnd + 1).some((item) => item.charge);
           const prevHp = follow ? null : prev;
+          const energyCell = (side: "a" | "b") => {
+            const miss = side === "a" ? missA : missB;
+            const energy = side === "a" ? row.energyA : row.energyB;
+            const previous = side === "a" ? prevHp?.energyA : prevHp?.energyB;
+            const changed = !prevHp || previous !== energy;
+            const missNow = miss.has(row.turn);
+            const missPrev = Boolean(prev && miss.has(prev.turn));
+            if (!changed && !(missNow && !missPrev)) return null;
+            return { text: energy, alert: missNow };
+          };
+          const energyA = energyCell("a");
+          const energyB = energyCell("b");
           return (
             <tr
               key={row.key}
@@ -1298,9 +1881,16 @@ function BattleSheet({
                 .join(" ") || undefined}
             >
               {follow ? null : (
-                <td className="hp num" rowSpan={span}>
-                  {!prevHp || prevHp.hpA !== row.hpA ? row.hpA : ""}
-                </td>
+                <>
+                  <td className="hp num" rowSpan={span}>
+                    {!prevHp || prevHp.hpA !== row.hpA ? row.hpA : ""}
+                  </td>
+                  {TIMELINE_ENERGY ? (
+                    <td className={`energy num${energyA?.alert ? " is-ko-miss" : ""}`} rowSpan={span}>
+                      {energyA ? energyA.text : ""}
+                    </td>
+                  ) : null}
+                </>
               )}
               <MoveCell cell={row.a} guard={row.guardA} onCharged={(throwIndex) => onCharged("a", throwIndex)} />
               {follow ? null : (
@@ -1310,9 +1900,16 @@ function BattleSheet({
               )}
               <MoveCell cell={row.b} guard={row.guardB} onCharged={(throwIndex) => onCharged("b", throwIndex)} />
               {follow ? null : (
-                <td className="hp num" rowSpan={span}>
-                  {!prevHp || prevHp.hpB !== row.hpB ? row.hpB : ""}
-                </td>
+                <>
+                  {TIMELINE_ENERGY ? (
+                    <td className={`energy num${energyB?.alert ? " is-ko-miss" : ""}`} rowSpan={span}>
+                      {energyB ? energyB.text : ""}
+                    </td>
+                  ) : null}
+                  <td className="hp num" rowSpan={span}>
+                    {!prevHp || prevHp.hpB !== row.hpB ? row.hpB : ""}
+                  </td>
+                </>
               )}
             </tr>
           );
@@ -1384,9 +1981,9 @@ function MoveCell({
     ) : null;
   return (
     <td
-      className={`move${cell.endsCharge ? " ends-charge" : ""}${stacked ? " is-stacked" : ""}${longCct ? " is-long-cct" : ""}${cell.charged ? " is-charged" : ""}`}
+      className={`move${cell.name === "交代" ? " is-switch" : ""}${cell.endsCharge ? " ends-charge" : ""}${stacked ? " is-stacked" : ""}${longCct ? " is-long-cct" : ""}${cell.charged ? " is-charged" : ""}`}
       rowSpan={cell.span}
-      style={cell.name ? { background: typeWash(cell.type) } : undefined}
+      style={cell.name && cell.name !== "交代" ? { background: typeWash(cell.type) } : undefined}
     >
       {stacked ? (
         <span className="move-label is-stacked">
@@ -1467,7 +2064,11 @@ function matchupMoveHits(attacker: FighterInput, defender: FighterInput, thirdId
 
 function MatchupSide({
   word,
+  onApplyIv,
   side,
+  rear = null,
+  view = null,
+  onView,
   hp,
   max,
   cp,
@@ -1476,10 +2077,20 @@ function MatchupSide({
   defense,
   stamina,
   energy,
+  shields,
   hits,
+  attackBreak,
+  defenseBreak,
+  leagueId,
+  megas,
+  foe,
 }: {
   word: "WIN" | "LOSE" | null;
+  onApplyIv: (ivs: { atkIv: number; defIv: number; staIv: number }) => void;
   side: SideState;
+  rear?: SideState | null;
+  view?: "lead" | "back" | null;
+  onView?: (slot: "lead" | "back") => void;
   hp: number;
   max: number;
   cp: number;
@@ -1488,7 +2099,13 @@ function MatchupSide({
   defense: number;
   stamina: number;
   energy: number;
+  shields: number;
   hits: MatchupHitRow[];
+  attackBreak: FastBreakMark | null;
+  defenseBreak: FastBreakMark | null;
+  foe: SideState;
+  leagueId: LeagueId;
+  megas: MegaEntry[];
 }) {
   const ratio = max > 0 ? hp / max : 0;
   const band = ratio <= 0.2 ? "low" : ratio <= 0.5 ? "mid" : "high";
@@ -1501,15 +2118,39 @@ function MatchupSide({
         CP：{cp}　SCP：{scp}
       </p>
       <div className="sim-mon-block">
-        {side.record ? (
-          <PokemonDotSprite
-            pokemonId={side.record.pokemon_id}
-            form={side.exactSprite ? undefined : side.record.form}
-            exact={side.exactSprite}
-            spriteSuffix={side.spriteSuffix}
-            alt=""
+        {side.record && rear?.record ? (
+          <StackedMon
+            anchorFront
+            onRear={onView && view ? () => onView(view === "lead" ? "back" : "lead") : undefined}
+            rearLabel={view === "lead" ? "引き先に切り替え" : "初手に切り替え"}
+            front={{
+              pokemonId: side.record.pokemon_id,
+              form: side.record.form,
+              exact: side.exactSprite,
+              spriteSuffix: side.spriteSuffix,
+              shadow: side.shadow,
+            }}
+            rear={{
+              pokemonId: rear.record.pokemon_id,
+              form: rear.record.form,
+              exact: rear.exactSprite,
+              spriteSuffix: rear.spriteSuffix,
+              shadow: rear.shadow,
+            }}
             size={68}
           />
+        ) : side.record ? (
+          <span className="sim-banner-sprite">
+            <PokemonDotSprite
+              pokemonId={side.record.pokemon_id}
+              form={side.exactSprite ? undefined : side.record.form}
+              exact={side.exactSprite}
+              spriteSuffix={side.spriteSuffix}
+              alt=""
+              size={68}
+            />
+            {side.shadow ? <img className="sim-banner-shadow" src={SOZAI_SHADOW_SRC} alt="" /> : null}
+          </span>
         ) : null}
         <dl className="sim-real-stats">
           <div>
@@ -1532,7 +2173,12 @@ function MatchupSide({
           {hp} / {max}
         </span>
       </div>
-      <p className="sim-gauge">ゲージ：{energy}</p>
+      <p className="sim-gauge">
+        <span>ゲージ：{energy}</span>
+        <span className="sim-gauge-shield">
+          <ShieldMark size={14} />×{shields}
+        </span>
+      </p>
       <ul className={`sim-hit-list${regular.length ? "" : " is-empty"}`} aria-label={regular.length ? "技ダメージ" : undefined}>
         {regular.map((row) => (
           <li key={row.id}>
@@ -1545,7 +2191,140 @@ function MatchupSide({
           <HitMeter row={third} />
         </div>
       ) : null}
+      <div className="sim-break-stack">
+        <BreakButton kind="break" row={attackBreak} side={side} foe={foe} leagueId={leagueId} megas={megas} onApplyIv={onApplyIv} />
+        <BreakButton kind="bulk" row={defenseBreak} side={side} foe={foe} leagueId={leagueId} megas={megas} onApplyIv={onApplyIv} />
+        {onView ? (
+          <div className="chase-view" role="group" aria-label="表示するポケモン">
+            <button type="button" aria-pressed={view === "lead"} onClick={() => onView("lead")}>
+              初手
+            </button>
+            <button type="button" aria-pressed={view === "back"} onClick={() => onView("back")}>
+              引き先
+            </button>
+          </div>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+function BreakButton({
+  kind,
+  row,
+  side,
+  foe,
+  leagueId,
+  megas,
+  onApplyIv,
+}: {
+  kind: "break" | "bulk";
+  row: FastBreakMark | null;
+  side: SideState;
+  foe: SideState;
+  leagueId: LeagueId;
+  megas: MegaEntry[];
+  onApplyIv: (ivs: { atkIv: number; defIv: number; staIv: number }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const picked = row?.row ?? null;
+  const live = Boolean(picked && side.record);
+  const label = kind === "break" ? "わざ1ブレイク！" : "ブレイク抑え！";
+  const title = kind === "break" ? "わざ1ブレイク！　最大順位" : "ブレイク抑え！　最大順位";
+  const statLabel = kind === "break" ? "攻撃" : "防御";
+  const stat = picked ? (kind === "break" ? picked.attack : picked.defense) : 0;
+  return (
+    <>
+      <button
+        type="button"
+        className={`sim-break-btn${live ? " is-live" : ""}`}
+        disabled={!live}
+        onClick={() => {
+          if (live) setOpen(true);
+        }}
+      >
+        <span>{label}</span>
+        <span className="num">{picked ? formatPlace(picked.rank) : "位"}</span>
+      </button>
+      {open && picked && side.record
+        ? createPortal(
+        <div className="search-overlay is-centered sim-break-overlay" role="dialog" aria-modal="true" aria-label={label}>
+          <button type="button" className="search-overlay-backdrop" aria-label="閉じる" onClick={() => setOpen(false)} />
+          <div className="search-overlay-panel sim-break-panel">
+            <h2 className="shield-panel-title">{title}</h2>
+            <div className="sim-break-stage">
+              <div className="sim-break-body">
+                <PokemonDotSprite
+                  pokemonId={side.record.pokemon_id}
+                  form={side.exactSprite ? undefined : side.record.form}
+                  exact={side.exactSprite}
+                  spriteSuffix={side.spriteSuffix}
+                  alt=""
+                  size={72}
+                />
+                <p className={`check-rank place num ${placeTone(picked.rank)}`}>{formatPlace(picked.rank)}！</p>
+                <p className="check-mid num">
+                  {picked.atkIv}-{picked.defIv}-{picked.staIv}
+                </p>
+                <p className="check-mid num">CP {picked.cp}</p>
+                <p className="check-mid num">SCP {formatScp(picked.statProduct)}</p>
+                <p className="check-mid num">
+                  {statLabel} {formatBattleStat(stat, 2)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline sim-break-recalc"
+                onClick={() => {
+                  onApplyIv({ atkIv: picked.atkIv, defIv: picked.defIv, staIv: picked.staIv });
+                  setOpen(false);
+                }}
+              >
+                <span>この個体で</span>
+                <span>再計算</span>
+              </button>
+            </div>
+            <div className="sim-iv-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  if (!side.record || !foe.record) return;
+                  requestBreakStudy({
+                    league: leagueId,
+                    attacker: {
+                      pokemonId: side.record.pokemon_id,
+                      form: side.record.form,
+                      atkIv: picked.atkIv,
+                      defIv: picked.defIv,
+                      staIv: picked.staIv,
+                      shadow: side.shadow,
+                      fastId: kind === "break" ? (row?.moveId || side.fastId) : side.fastId,
+                    },
+                    defender: {
+                      pokemonId: foe.record.pokemon_id,
+                      form: foe.record.form,
+                      atkIv: foe.atkIv,
+                      defIv: foe.defIv,
+                      staIv: foe.staIv,
+                      shadow: foe.shadow,
+                      fastId: kind === "bulk" ? (row?.moveId || foe.fastId) : foe.fastId,
+                    },
+                  });
+                  setOpen(false);
+                }}
+              >
+                他の個体値を検索
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => setOpen(false)}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
+    </>
   );
 }
 
@@ -1885,4 +2664,85 @@ function IvPopup({
       </div>
     </div>
   );
+}
+
+function followFromPacked(packed: NonNullable<ReturnType<typeof packFighter>>, timeline: TimelineStep[] | null): FollowPokemon {
+  const input = packed.input;
+  return {
+    label: input.label,
+    attack: input.attack,
+    defense: input.defense,
+    hp: input.hp,
+    types: input.types,
+    shadow: input.shadow,
+    fast: input.fast,
+    charged: input.charged,
+    speciesId: input.speciesId,
+    form: input.form,
+    aegislash: input.aegislash,
+    miniorMeteor: input.miniorMeteor,
+    miniorCore: input.miniorCore,
+    timing: input.timing,
+    applyChanceBuffs: input.applyChanceBuffs,
+    chargedQueue: input.chargedQueue,
+    timelinePlan: timeline,
+    startHp: input.startHp,
+    startEnergy: input.startEnergy,
+    startAttackStage: input.startAttackStage,
+    startDefenseStage: input.startDefenseStage,
+  };
+}
+
+function chaseBattleInput(
+  lead: NonNullable<ReturnType<typeof packFighter>>,
+  back: NonNullable<ReturnType<typeof packFighter>> | null,
+  chaseLive: boolean,
+  leadPlan: TimelineStep[] | null,
+  backPlanSaved: TimelineStep[] | null,
+  fastCount: number,
+  order: string[],
+) {
+  if (!back) return { input: lead.input, short: false };
+  const known = new Set(lead.input.charged.map((move) => move.id));
+  const specials = order.flatMap((id) => {
+    const move = lead.input.charged.find((item) => item.id === id);
+    return known.has(id) && move ? [{ id: move.id, energy: move.energy }] : [];
+  });
+  const requested = Math.min(Math.max(0, fastCount), fastCountMax(lead.input.fast.turns));
+  const scriptInput = {
+    fastId: lead.input.fast.id,
+    fastTurns: lead.input.fast.turns,
+    fastGain: lead.input.fast.energyGain,
+    startEnergy: lead.input.startEnergy ?? 0,
+    specials,
+  };
+  const minimum = buildLeadScript({ ...scriptInput, fastCount: 0 });
+  const script = buildLeadScript({ ...scriptInput, fastCount: requested });
+  let steps = script.steps;
+  let switchTurn = script.switchTurn;
+  let backPlan: TimelineStep[] | null = null;
+  if (chaseLive && leadPlan) {
+    steps = leadPlan.filter((step) => step.kind !== "switch");
+    backPlan = backPlanSaved?.filter((step) => step.kind !== "switch") ?? null;
+    switchTurn = planTurns(steps, Math.max(1, lead.input.fast.turns)) + 1;
+  }
+  return {
+    short: minimum.fastUsed > requested,
+    input: {
+      ...lead.input,
+      timelinePlan: steps,
+      chargedQueue: null,
+      scriptCct: !chaseLive && lead.input.timing === "cct",
+      follow: { switchTurn, next: followFromPacked(back, backPlan) },
+    },
+  };
+}
+
+function BannerSlot({ slot, children }: { slot: "banner-leading" | "banner-trailing"; children: ReactNode }) {
+  const [node, setNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setNode(document.getElementById(slot));
+  }, [slot]);
+  if (!node) return null;
+  return createPortal(children, node);
 }

@@ -297,3 +297,17 @@ function memberLabel(record: PogoStatRecord, mega: string | null) {
   if (record.form !== "Normal") return `${name} ${formatFormLabel(record.form)}`;
   return name;
 }
+
+/** 個体値タブの検索履歴が引けるキー。メガは「図鑑:進化元:メガ」。 */
+export function speciesPickKey(record: PogoStatRecord, megas: MegaEntry[]) {
+  const mega = megas.find(
+    (item) =>
+      item.pokemonId === record.pokemon_id &&
+      item.mega === record.form &&
+      item.attack === record.base_attack &&
+      item.defense === record.base_defense &&
+      item.stamina === record.base_stamina,
+  );
+  if (mega) return `${record.pokemon_id}:${mega.baseForm}:${mega.mega}`;
+  return `${record.pokemon_id}:${record.form}`;
+}

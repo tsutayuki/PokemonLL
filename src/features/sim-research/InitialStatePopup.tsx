@@ -24,6 +24,7 @@ export function InitialStatePopup({
   state,
   onChange,
   onClose,
+  chaseHint = false,
 }: {
   record: PogoStatRecord;
   exactSprite: boolean;
@@ -33,8 +34,9 @@ export function InitialStatePopup({
   fastName: string;
   fastGain: number;
   state: InitialState;
-  onChange: (next: InitialState) => void;
+  onChange: (next: InitialState, source: "toggle" | "input") => void;
   onClose: () => void;
+  chaseHint?: boolean;
 }) {
   const damage = clampInt(state.initialDamage, 0, maxHp);
   const remaining = maxHp - damage;
@@ -49,7 +51,8 @@ export function InitialStatePopup({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const patch = (next: Partial<InitialState>) => onChange({ ...state, initialDamage: damage, initialEnergy: energy, ...next });
+  const patch = (next: Partial<InitialState>, source: "toggle" | "input") =>
+    onChange({ ...state, initialDamage: damage, initialEnergy: energy, ...next }, source);
 
   return createPortal(
     <div className="search-overlay is-centered" role="dialog" aria-modal="true" aria-label="初期条件">
@@ -68,9 +71,9 @@ export function InitialStatePopup({
             />
             <button
               type="button"
-              className="buddy-toggle initial-toggle"
+              className={`initial-toggle${state.initialOn ? " is-on" : ""}`}
               aria-pressed={state.initialOn}
-              onClick={() => patch({ initialOn: !state.initialOn })}
+              onClick={() => patch({ initialOn: !state.initialOn }, "toggle")}
             >
               {state.initialOn ? "初期条件 ON" : "初期条件 OFF"}
             </button>
@@ -83,7 +86,7 @@ export function InitialStatePopup({
                 value={remaining}
                 max={maxHp}
                 ariaLabel="HP残量"
-                onCommit={(value) => patch({ initialDamage: maxHp - value })}
+                onCommit={(value) => patch({ initialDamage: maxHp - value }, "input")}
               />
             </label>
             <span className="initial-or">または</span>
@@ -93,7 +96,7 @@ export function InitialStatePopup({
                 value={damage}
                 max={maxHp}
                 ariaLabel="受けたダメージ"
-                onCommit={(value) => patch({ initialDamage: value })}
+                onCommit={(value) => patch({ initialDamage: value }, "input")}
               />
             </label>
           </div>
@@ -107,13 +110,13 @@ export function InitialStatePopup({
                 max={100}
                 ariaLabel="初期ゲージ"
                 tall
-                onCommit={(value) => patch({ initialEnergy: value })}
+                onCommit={(value) => patch({ initialEnergy: value }, "input")}
               />
               <div className="initial-gauge-actions">
-                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy + gain, 0, 100) })}>
+                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy + gain, 0, 100) }, "input")}>
                   {`${fastName}＋${gain}`}
                 </GainButton>
-                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy - gain, 0, 100) })}>
+                <GainButton disabled={gain <= 0} onClick={() => patch({ initialEnergy: clampInt(energy - gain, 0, 100) }, "input")}>
                   {`${fastName}ー${gain}`}
                 </GainButton>
               </div>
@@ -123,15 +126,22 @@ export function InitialStatePopup({
           <StageRow
             label="攻撃ランク"
             value={clampInt(state.initialAttackStage, -4, 4)}
-            onChange={(initialAttackStage) => patch({ initialAttackStage })}
+            onChange={(initialAttackStage) => patch({ initialAttackStage }, "input")}
           />
           <StageRow
             label="防御ランク"
             value={clampInt(state.initialDefenseStage, -4, 4)}
-            onChange={(initialDefenseStage) => patch({ initialDefenseStage })}
+            onChange={(initialDefenseStage) => patch({ initialDefenseStage }, "input")}
           />
         </div>
         <div className="sim-iv-actions">
+          {chaseHint ? (
+            <p className="initial-chase-hint">
+              後追いモードを利用するともっと楽に計算ができます。
+              <br />
+              右上の後追いモードボタンで有効になります。
+            </p>
+          ) : null}
           <button type="button" className="btn btn-primary" onClick={onClose}>
             閉じる
           </button>

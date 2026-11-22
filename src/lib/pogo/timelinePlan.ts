@@ -1,7 +1,8 @@
 export type TimelineStep =
   | { kind: "fast"; moveId: string; /** 同じ側の割り込みで短くした長さ。未指定は技本来のターン数。 */ turns?: number }
   | { kind: "charged"; moveId: string }
-  | { kind: "wait" };
+  | { kind: "wait"; /** 結果タイムラインでは交代と見せる。計算は1ターン待機。 */ show?: "交代" }
+  | { kind: "switch" };
 
 export type TimelineSpan = {
   stepIndex: number;
@@ -15,6 +16,37 @@ export type TimelineSpan = {
 export function stepDuration(step: TimelineStep, fastTurns: number) {
   if (step.kind === "fast") return Math.max(1, step.turns ?? fastTurns);
   return 1;
+}
+
+/**
+ * 交代より前は初手、より後は引き先のノーマルターン数を手順に書く。
+ * すでにそれより短く切ってある技はその長さのまま。境界が無ければ手順はそのまま。
+ */
+export function stampSegmentFastTurns(steps: TimelineStep[], leadTurns: number, followTurns: number): TimelineStep[] {
+  const boundary = steps.findIndex((step) => step.kind === "switch");
+  if (boundary < 0) return steps;
+  const lead = Math.max(1, leadTurns);
+  const follow = Math.max(1, followTurns);
+  let changed = false;
+  const next = steps.map((step, index) => {
+    if (step.kind !== "fast") return step;
+    const native = index > boundary ? follow : lead;
+    const turns = step.turns != null && step.turns < native ? step.turns : native;
+    if (step.turns === turns) return step;
+    changed = true;
+    return { ...step, turns };
+  });
+  return changed ? next : steps;
+}
+
+/** 交代境界をまたがない並べ替え。境界そのものは動かさない。 */
+export function moveWithinBoundary(steps: TimelineStep[], from: number, insertAt: number) {
+  const boundary = steps.findIndex((step) => step.kind === "switch");
+  if (steps[from]?.kind === "switch") return steps;
+  if (boundary < 0) return moveStep(steps, from, insertAt);
+  const removedBoundary = from < boundary ? boundary - 1 : boundary;
+  const at = from < boundary ? Math.min(insertAt, removedBoundary) : Math.max(insertAt, removedBoundary + 1);
+  return moveStep(steps, from, at);
 }
 
 type Play = {
@@ -70,6 +102,8 @@ export function alignPlans(
     gainB: number;
     costA: (moveId: string) => number;
     costB: (moveId: string) => number;
+    gainAtA?: (stepIndex: number) => number;
+    costAtA?: (moveId: string, stepIndex: number) => number;
   },
 ): AlignedPlans {
   const playA = freshPlay();
@@ -113,10 +147,13 @@ export function alignPlans(
       }
     }
     if (energy) {
-      if (playA.step?.kind === "fast" && playA.left === 0) energyA = Math.min(100, energyA + Math.max(0, energy.gainA));
+      if (playA.step?.kind === "fast" && playA.left === 0) {
+        const gain = energy.gainAtA?.(playA.stepIndex) ?? energy.gainA;
+        energyA = Math.min(100, energyA + Math.max(0, gain));
+      }
       if (playB.step?.kind === "fast" && playB.left === 0) energyB = Math.min(100, energyB + Math.max(0, energy.gainB));
       if (playA.step?.kind === "charged" && playA.left === 0) {
-        const cost = energy.costA(playA.step.moveId);
+        const cost = energy.costAtA?.(playA.step.moveId, playA.stepIndex) ?? energy.costA(playA.step.moveId);
         if (energyA < cost) shortA.push(playA.stepIndex);
         else energyA -= cost;
       }
@@ -134,7 +171,10 @@ export function alignPlans(
   return { turns: Math.max(1, turn - 1), chargeTurns, a: { spans: spansA, short: shortA }, b: { spans: spansB, short: shortB } };
 }
 
-/** 表示上のターンへ、その側の技を入れる。ノーマルの途中なら、そこまでで切って後ろは捨てる。 */
+/**
+ * 表示上のターンへ、その側の技を入れる。
+ * ノーマルの途中なら、その技は切らず、直後に入れる。技のターン数は変えない。
+ */
 export function insertAtTurn(
   stepsA: TimelineStep[],
   fastA: number,
@@ -153,10 +193,6 @@ export function insertAtTurn(
   else if (turn === covering.startTurn) {
     next = steps.slice();
     next.splice(covering.stepIndex, 0, step);
-  } else if (covering.step.kind === "fast") {
-    const head: TimelineStep = { kind: "fast", moveId: covering.step.moveId, turns: turn - covering.startTurn };
-    next = steps.slice();
-    next.splice(covering.stepIndex, 1, head, step);
   } else {
     next = steps.slice();
     next.splice(covering.stepIndex + 1, 0, step);
@@ -263,6 +299,7 @@ function nextFill(energy: number, charged: FillMove[], fastId: string, fastTurns
 /**
  * 片方の手順だけ短いとき、もう片方の最後のターンまで技を足す。
  * ゲージが足りればスペシャル。足りなければノーマル。複数ターンのノーマルは、空きがその長さになってから置く。
+ * 後追いで followFast があるとき、自分側の下の空白は引き先の通常技だけ、相手側の空白は相手の通常技だけ足す。
  */
 export function fillLaggingSide(
   stepsA: TimelineStep[],
@@ -275,6 +312,7 @@ export function fillLaggingSide(
   fastIdB: string,
   gainB: number,
   chargedB: FillMove[],
+  options?: { lockA?: boolean; followFast?: { id: string; turns: number } },
 ) {
   let nextA = stepsA.slice();
   let nextB = stepsB.slice();
@@ -287,6 +325,19 @@ export function fillLaggingSide(
     if (endA === endB) break;
     const lagA = endA < endB;
     const gap = Math.abs(endB - endA);
+    if (lagA && options?.followFast) {
+      const turns = Math.max(1, options.followFast.turns);
+      if (gap < turns) break;
+      nextA = [...nextA, { kind: "fast", moveId: options.followFast.id, turns }];
+      continue;
+    }
+    if (lagA && options?.lockA) break;
+    if (!lagA && options?.followFast) {
+      const turns = Math.max(1, fastB);
+      if (gap < turns) break;
+      nextB = [...nextB, { kind: "fast", moveId: fastIdB, turns }];
+      continue;
+    }
     const step = lagA
       ? nextFill(energyAfter(aligned.a.spans, gainA, costA), chargedA, fastIdA, fastA, gap)
       : nextFill(energyAfter(aligned.b.spans, gainB, costB), chargedB, fastIdB, fastB, gap);
@@ -298,7 +349,7 @@ export function fillLaggingSide(
 }
 
 export function planFromEvents(
-  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number }[],
+  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number; moveName?: string }[],
   actor: "a" | "b",
 ): TimelineStep[] {
   const steps: TimelineStep[] = [];
@@ -306,6 +357,11 @@ export function planFromEvents(
   const ordered = events.slice().sort((left, right) => left.turn - right.turn || 0);
   for (const event of ordered) {
     if (event.actor !== actor || seen.has(event.actionId)) continue;
+    if (event.kind === "note" && event.moveName === "交代") {
+      seen.add(event.actionId);
+      steps.push({ kind: "switch" });
+      continue;
+    }
     if (event.kind !== "fast" && event.kind !== "charged") continue;
     seen.add(event.actionId);
     if (event.kind === "charged") steps.push({ kind: "charged", moveId: event.moveId });
@@ -314,15 +370,24 @@ export function planFromEvents(
   return steps;
 }
 
-/** いまの手順のうしろに、最適で続いた技を足す。手順が無いときは、対戦の技を全部手順にする。 */
+/**
+ * いまの手順のうしろに、手順が尽きたあとの最適技だけ足す。
+ * 手順が無いときは、対戦の技を全部手順にする。
+ * 交代の記録は手順の途中でも未スクリプトなので、ここへ足すと開くたびに交代が増える。
+ */
 export function extendPlanFromTimeline(
   plan: TimelineStep[] | null,
-  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number; scripted?: boolean }[],
+  events: { turn: number; actor: "a" | "b"; kind: string; moveId: string; actionId: number; scripted?: boolean; moveName?: string }[],
   actor: "a" | "b",
 ) {
   if (!plan) return planFromEvents(events, actor);
+  const coveredUntil = events.reduce((max, event) => {
+    if (event.actor !== actor || event.scripted !== true) return max;
+    if (event.kind !== "fast" && event.kind !== "charged") return max;
+    return Math.max(max, event.turn);
+  }, 0);
   const tail = planFromEvents(
-    events.filter((event) => event.scripted === false),
+    events.filter((event) => event.scripted === false && event.turn > coveredUntil && event.moveName !== "交代"),
     actor,
   );
   return tail.length ? [...plan, ...tail] : plan;

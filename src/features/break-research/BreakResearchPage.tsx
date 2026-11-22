@@ -20,6 +20,7 @@ import {
   type SpeciesGroup,
 } from "../../lib/pogo/research";
 import { TYPE_LABEL_JA, asPvpType } from "../../lib/pogo/types";
+import { takeBreakJump, type BreakJumpSide } from "./breakJump";
 
 type SideState = {
   species: string;
@@ -43,6 +44,22 @@ const emptySide: SideState = {
   chargedId: "",
 };
 
+function sideFromJump(groups: SpeciesGroup[], part: BreakJumpSide): Partial<SideState> | null {
+  const group =
+    groups.find((item) => item.pokemonId === part.pokemonId && item.entries.some((entry) => entry.form === part.form)) ??
+    groups.find((item) => item.pokemonId === part.pokemonId);
+  if (!group) return null;
+  return {
+    species: group.name,
+    form: part.form,
+    atkIv: part.atkIv,
+    defIv: part.defIv,
+    staIv: part.staIv,
+    shadow: part.shadow,
+    fastId: part.fastId,
+  };
+}
+
 function clampIv(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(15, Math.max(0, Math.round(value)));
@@ -58,6 +75,15 @@ export function BreakResearchPage() {
 
   useEffect(() => {
     if (!speciesGroups.length) return;
+    const jump = takeBreakJump();
+    if (jump) {
+      setLeagueId(jump.league);
+      const nextAttacker = sideFromJump(speciesGroups, jump.attacker);
+      const nextDefender = sideFromJump(speciesGroups, jump.defender);
+      if (nextAttacker) setAttacker((current) => ({ ...current, ...nextAttacker }));
+      if (nextDefender) setDefender((current) => ({ ...current, ...nextDefender }));
+      return;
+    }
     if (!attacker.species) applySpecies(speciesGroups[0], "attacker", true);
     if (!defender.species) applySpecies(speciesGroups[Math.min(1, speciesGroups.length - 1)], "defender", true);
     // eslint-disable-next-line react-hooks/exhaustive-deps

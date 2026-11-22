@@ -35,10 +35,15 @@ export function chargedNameAt(events: TimelineEvent[], actor: "a" | "b", index: 
   );
 }
 
-function firedMoveIds(events: TimelineEvent[], actor: "a" | "b") {
+function firedMoveIds(events: TimelineEvent[], actor: "a" | "b", mon?: "lead" | "back") {
   const ids: string[] = [];
   for (const event of events) {
-    if (event.actor === actor && event.kind === "charged" && event.throwIndex != null) ids[event.throwIndex] = event.moveId;
+    if (event.actor !== actor || event.kind !== "charged" || event.throwIndex == null) continue;
+    if (mon) {
+      if (event.mon === mon) ids.push(event.moveId);
+      continue;
+    }
+    ids[event.throwIndex] = event.moveId;
   }
   return ids;
 }
@@ -53,6 +58,8 @@ export function TimelineOps({
   onChangeB,
   onEdit,
   onUseCustomShield,
+  moveA,
+  onChangeMoveA,
 }: {
   sideA: SideState;
   sideB: SideState;
@@ -63,15 +70,20 @@ export function TimelineOps({
   onChangeB: (next: SideState) => void;
   onEdit: (next: { kind: "move" | "shield"; side: "a" | "b" }) => void;
   onUseCustomShield: () => void;
+  /** 後追いのとき、左のゲージ技と技選択は引き先。シールドは sideA のまま。 */
+  moveA?: SideState;
+  onChangeMoveA?: (next: SideState) => void;
 }) {
+  const attackA = moveA ?? sideA;
+  const changeAttackA = onChangeMoveA ?? onChangeA;
   const openMoves = (which: "a" | "b") => {
-    const side = which === "a" ? sideA : sideB;
+    const side = which === "a" ? attackA : sideB;
     const moves = which === "a" ? movesA : movesB;
-    const onChange = which === "a" ? onChangeA : onChangeB;
+    const onChange = which === "a" ? changeAttackA : onChangeB;
     const known = new Set(moves.map((move) => move.id));
     const slots = side.moveSlots.every((slot) => slot == null)
       ? blankSlots().map((_, index) => {
-          const id = firedMoveIds(timeline, which)[index];
+          const id = firedMoveIds(timeline, which, which === "a" && moveA ? "back" : undefined)[index];
           return id && known.has(id) ? id : null;
         })
       : side.moveSlots;
@@ -90,12 +102,12 @@ export function TimelineOps({
     <div className="timeline-ops" aria-label="タイムライン操作">
       <OpsRow label="ゲージ技">
         <ChoiceButtons
-          value={sideA.timing}
+          value={attackA.timing}
           options={[
             ["cct", "最適"],
             ["asap", "最短"],
           ]}
-          onChange={(timing) => onChangeA({ ...sideA, timing: timing as ChargeTiming })}
+          onChange={(timing) => changeAttackA({ ...attackA, timing: timing as ChargeTiming })}
         />
         <ChoiceButtons
           align="end"
@@ -109,14 +121,14 @@ export function TimelineOps({
       </OpsRow>
       <OpsRow label="技選択">
         <ChoiceButtons
-          value={sideA.moveMode}
+          value={attackA.moveMode}
           options={[
             ["optimal", "最適"],
             ["custom", "カスタム"],
           ]}
           onChange={(mode) => {
             if (mode === "custom") openMoves("a");
-            else onChangeA({ ...sideA, moveMode: "optimal" });
+            else changeAttackA({ ...attackA, moveMode: "optimal" });
           }}
         />
         <ChoiceButtons
@@ -203,6 +215,7 @@ export function PlanPopup({
   kind,
   side,
   moves,
+  title,
   onClose,
   onChange,
 }: {
@@ -211,6 +224,7 @@ export function PlanPopup({
   moves: PvpMove[];
   timeline: TimelineEvent[];
   actor: "a" | "b";
+  title?: string;
   onClose: () => void;
   onChange: (next: SideState) => void;
 }) {
@@ -229,29 +243,41 @@ export function PlanPopup({
       <button type="button" className="search-overlay-backdrop" aria-label="閉じる" onClick={onClose} />
       {kind === "move" ? (
         <div className="search-overlay-panel sim-plan-panel sim-move-panel">
-          <h2 className="shield-panel-title">技選択</h2>
-          <div className="sim-plan-list">
-            {PLAN_LABELS.map((label, index) => (
-              <label key={label} className="field">
-                <span>{label}</span>
-                <select
-                  className="input"
-                  value={side.moveSlots[index] ?? ""}
-                  onChange={(event) => {
-                    const moveSlots = [...side.moveSlots];
-                    moveSlots[index] = event.target.value || null;
-                    onChange({ ...side, moveMode: "custom", moveSlots });
-                  }}
-                >
-                  <option value="">-</option>
-                  {equipped.map((move) => (
-                    <option key={move.id} value={move.id}>
-                      {move.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
+          <h2 className="shield-panel-title">{title ?? "技選択"}</h2>
+          <div className="sim-move-picks">
+            {PLAN_LABELS.map((label, index) => {
+              const locked = side.moveSlots.slice(0, index).some((slot) => !slot);
+              return (
+                <div key={label} className={`sim-move-round${locked ? " is-locked" : ""}`}>
+                  <p>{label}</p>
+                  <div className={`sim-move-choices${equipped.length >= 3 ? " is-three" : ""}`}>
+                    {equipped.map((move) => {
+                      const on = side.moveSlots[index] === move.id;
+                      return (
+                        <button
+                          key={move.id}
+                          type="button"
+                          className="sim-move-choice"
+                          aria-pressed={on}
+                          disabled={locked}
+                          onClick={() => {
+                            const moveSlots = [...side.moveSlots];
+                            if (on) {
+                              for (let cursor = index; cursor < moveSlots.length; cursor += 1) moveSlots[cursor] = null;
+                            } else {
+                              moveSlots[index] = move.id;
+                            }
+                            onChange({ ...side, moveMode: "custom", moveSlots });
+                          }}
+                        >
+                          {move.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="sim-iv-actions">
             <button type="button" className="btn btn-primary" onClick={onClose}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { EvolutionData } from "../../lib/pogo/evolutionLine";
+import type { EvolutionData, MegaEntry } from "../../lib/pogo/evolutionLine";
 import { applyKu6Learnsets, applyMegaPokemon, applySmeargleLearnset, type SheetCatalog } from "../../lib/pogo/ku6Learnsets";
 import { applyMoveEdits, loadMoveEdits, subscribeMoveEdits } from "../../lib/pogo/moveEdits";
 import type { PvpBundle } from "../../lib/pogo/pvpBundle";
@@ -14,6 +14,9 @@ export type ResearchData = {
   stats: PogoStatRecord[];
   multipliers: CpMultiplierRecord[];
   bundle: PvpBundle;
+  catalog: SheetCatalog;
+  megas: MegaEntry[];
+  evolutions: EvolutionData;
 };
 
 export function useResearchData() {
@@ -47,7 +50,7 @@ export function useResearchData() {
         bundle = applyKu6Learnsets(bundle, catalog, stats);
         bundle = applySmeargleLearnset(bundle);
         bundle = applyMegaPokemon(bundle, catalog, evolutions.megas ?? []);
-        if (!cancelled) setData({ stats, multipliers, bundle });
+        if (!cancelled) setData({ stats, multipliers, bundle, catalog, megas: evolutions.megas ?? [], evolutions });
       } catch {
         if (!cancelled) setError("研究データの読み込みに失敗しました。");
       }

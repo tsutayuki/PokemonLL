@@ -56,7 +56,7 @@ export function IvResearchPage() {
   const [tab, setTab] = useState<TabId>("check");
   const [selected, setSelected] = useState<SpeciesGroup | null>(null);
   const [form, setForm] = useState("");
-  const [atkIv, setAtkIv] = useState(15);
+  const [atkIv, setAtkIv] = useState(0);
   const [defIv, setDefIv] = useState(15);
   const [staIv, setStaIv] = useState(15);
   const [buddy, setBuddy] = useState(false);

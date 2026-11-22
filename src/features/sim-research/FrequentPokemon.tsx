@@ -2,7 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PokemonDotSprite } from "../../components/PokemonDotSprite";
 import { usePokemonPicks } from "../../lib/pogo/pokemonPicks";
+import type { MegaEntry } from "../../lib/pogo/evolutionLine";
 import { getPokemonDisplayName, type LeagueId, type PogoStatRecord } from "../../lib/pogo/research";
+
+export type FrequentPreset = {
+  atkIv: number;
+  defIv: number;
+  staIv: number;
+  level: number;
+  shadow: boolean;
+  fastId: string;
+  chargedId: string;
+  chargedId2: string;
+  megaLevel?: 1 | 2 | 3 | 4;
+};
 
 type Favorite = {
   id: number;
@@ -160,15 +173,30 @@ function findRecord(stats: PogoStatRecord[], id: number, form: string) {
   return stats.find((row) => row.pokemon_id === id && row.form === form) ?? null;
 }
 
-function recentMon(stats: PogoStatRecord[], key: string): Mon | null {
+function recentMon(stats: PogoStatRecord[], key: string, megas: MegaEntry[]): Mon | null {
   const split = key.indexOf(":");
   if (split <= 0) return null;
   const id = Number(key.slice(0, split));
   const form = key.slice(split + 1);
   if (!Number.isFinite(id) || !form || form.includes(":")) return null;
   const record = findRecord(stats, id, form);
-  if (!record) return null;
-  return { key: `${id}:${form}`, record, label: getPokemonDisplayName(id, record.pokemon_name) };
+  if (record) return { key: `${id}:${form}`, record, label: getPokemonDisplayName(id, record.pokemon_name) };
+  const mega = megas.find((item) => item.pokemonId === id && item.mega === form);
+  const base = mega ? findRecord(stats, id, mega.baseForm) : null;
+  if (!mega || !base) return null;
+  return {
+    key: `${id}:${form}`,
+    label: getPokemonDisplayName(id, base.pokemon_name),
+    exact: true,
+    spriteSuffix: mega.spriteSuffix,
+    record: {
+      ...base,
+      form: mega.mega,
+      base_attack: mega.attack,
+      base_defense: mega.defense,
+      base_stamina: mega.stamina,
+    },
+  };
 }
 
 function favoriteMon(stats: PogoStatRecord[], item: Favorite): Mon | null {
@@ -193,16 +221,23 @@ function favoriteMon(stats: PogoStatRecord[], item: Favorite): Mon | null {
 
 export function FrequentPokemon({
   stats,
+  megas = [],
   league,
+  chase = false,
   onPick,
 }: {
   stats: PogoStatRecord[];
+  megas?: MegaEntry[];
   league: LeagueId;
+  levels?: number[];
+  byLevel?: Map<string, number>;
+  chase?: boolean;
   onPick: (
     record: PogoStatRecord,
     label: string,
-    side: "a" | "b",
+    side: "a" | "back" | "b",
     sprite?: { exactSprite?: boolean; spriteSuffix?: number | null },
+    preset?: FrequentPreset,
   ) => void;
 }) {
   const { recent } = usePokemonPicks(league);
@@ -210,20 +245,19 @@ export function FrequentPokemon({
   const [layout, setLayout] = useState({ size: 40, columns: 9 });
   const [pending, setPending] = useState<Mon | null>(null);
   const favorites = favoritesFor(league);
-  const favoriteKeys = new Set(favorites.map((item) => `${item.id}:${item.form}`));
-
-  const recentMons = recent
-    .map((key) => recentMon(stats, key))
-    .filter((mon): mon is Mon => Boolean(mon))
-    .filter((mon) => !favoriteKeys.has(`${mon.record.pokemon_id}:${mon.record.form}`))
-    .slice(0, layout.columns);
   const catalog = favorites.flatMap((item) => {
     const mon = favoriteMon(stats, item);
     return mon ? [mon] : [];
   });
-  const favoriteLimit = layout.columns * Math.min(FAVORITE_ROWS, MAX_ROWS - (recentMons.length ? 1 : 0));
-  const favoriteRows: Mon[][] = [];
+  const favoriteLimit = layout.columns * Math.min(FAVORITE_ROWS, MAX_ROWS - 1);
   const shownFavorites = catalog.slice(0, favoriteLimit);
+  const shownFavoriteKeys = new Set(shownFavorites.map((mon) => mon.key));
+  const recentMons = recent
+    .map((key) => recentMon(stats, key, megas))
+    .filter((mon): mon is Mon => Boolean(mon))
+    .filter((mon) => !shownFavoriteKeys.has(mon.key))
+    .slice(0, layout.columns);
+  const favoriteRows: Mon[][] = [];
   for (let index = 0; index < shownFavorites.length; index += layout.columns) {
     favoriteRows.push(shownFavorites.slice(index, index + layout.columns));
   }
@@ -247,7 +281,7 @@ export function FrequentPokemon({
     setPending(null);
   }, [league]);
 
-  const choose = (side: "a" | "b") => {
+  const choose = (side: "a" | "back" | "b") => {
     if (!pending) return;
     onPick(pending.record, pending.label, side, { exactSprite: pending.exact, spriteSuffix: pending.spriteSuffix });
     setPending(null);
@@ -268,13 +302,24 @@ export function FrequentPokemon({
       {pending ? (
         <>
           <button type="button" className="freq-margin" aria-label="選択を閉じる" onClick={() => setPending(null)} />
-          <div className="freq-choose" role="group" aria-label={`${pending.label}をどちらに入れるか`}>
-            <button type="button" className="freq-side is-left" onClick={() => choose("a")}>
-              <span className="freq-arrow" aria-hidden="true">
-                ◀
-              </span>
-              <span>左に追加</span>
-            </button>
+          <div className={`freq-choose${chase ? " is-chase" : ""}`} role="group" aria-label={`${pending.label}をどちらに入れるか`}>
+            {chase ? (
+              <div className="freq-left-split">
+                <button type="button" className="freq-side is-left" onClick={() => choose("a")}>
+                  <span>左初手に追加</span>
+                </button>
+                <button type="button" className="freq-side is-left" onClick={() => choose("back")}>
+                  <span>左引き先に追加</span>
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="freq-side is-left" onClick={() => choose("a")}>
+                <span className="freq-arrow" aria-hidden="true">
+                  ◀
+                </span>
+                <span>左に追加</span>
+              </button>
+            )}
             <button type="button" className="freq-side is-right" onClick={() => choose("b")}>
               <span className="freq-arrow" aria-hidden="true">
                 ▶

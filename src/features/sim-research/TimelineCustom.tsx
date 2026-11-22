@@ -7,6 +7,9 @@ import {
   fillLaggingSide,
   insertAtTurn,
   moveStep,
+  moveWithinBoundary,
+  planTurns,
+  stampSegmentFastTurns,
   type TimelineSpan,
   type TimelineStep,
 } from "../../lib/pogo/timelinePlan";
@@ -106,6 +109,9 @@ export function TimelineCustom({
   onChangeA,
   onChangeB,
   onClose,
+  onDiscard,
+  benchA = null,
+  shownTurn = null,
 }: {
   sideA: SideEdit;
   sideB: SideEdit;
@@ -114,6 +120,11 @@ export function TimelineCustom({
   onChangeA: (plan: TimelineStep[]) => void;
   onChangeB: (plan: TimelineStep[]) => void;
   onClose: () => void;
+  onDiscard: () => void;
+  /** 交代境界より後の自分側。技の挿入候補に使う。 */
+  benchA?: SideEdit | null;
+  /** 今の対戦結果タイムラインの最後のターン。 */
+  shownTurn?: number | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<Session | null>(null);
@@ -121,6 +132,56 @@ export function TimelineCustom({
   const [insertTurn, setInsertTurn] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [closeWarned, setCloseWarned] = useState(false);
+  const [closeArmed, setCloseArmed] = useState(false);
+  const [markTop, setMarkTop] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const bulletin = document.querySelector<HTMLElement>(".damage-bulletin");
+      const tab = document.querySelector<HTMLElement>(".tab-bar");
+      const slot = document.querySelector<HTMLElement>(".ad-banner-slot");
+      const rem = Number.parseFloat(getComputedStyle(root).fontSize) || 16;
+      const floor =
+        (tab?.getBoundingClientRect().height ?? 0) +
+        (slot?.getBoundingClientRect().height ?? 0) +
+        4.25 * rem;
+      const top = bulletin?.getBoundingClientRect().top ?? 0;
+      const height = bulletin?.getBoundingClientRect().height ?? 0;
+      const viewport = window.visualViewport;
+      const measured =
+        height > 0
+          ? (viewport?.height ?? window.innerHeight) - (top - (viewport?.offsetTop ?? 0))
+          : 0;
+      const clear = measured > 0 ? measured : floor;
+      root.style.setProperty("--timeline-clear", `${Math.ceil(clear)}px`);
+    };
+    const observer = new ResizeObserver(apply);
+    const watch = () => {
+      for (const node of document.querySelectorAll<HTMLElement>(".damage-bulletin, .tab-bar, .app-root, .ad-banner-slot")) {
+        observer.observe(node);
+      }
+    };
+    const shell = document.querySelector(".app-shell");
+    const mutations = new MutationObserver(() => {
+      watch();
+      apply();
+    });
+    if (shell) mutations.observe(shell, { childList: true });
+    watch();
+    apply();
+    window.addEventListener("resize", apply);
+    window.visualViewport?.addEventListener("resize", apply);
+    window.visualViewport?.addEventListener("scroll", apply);
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+      window.removeEventListener("resize", apply);
+      window.visualViewport?.removeEventListener("resize", apply);
+      window.visualViewport?.removeEventListener("scroll", apply);
+      root.style.removeProperty("--timeline-clear");
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -181,6 +242,8 @@ export function TimelineCustom({
   };
 
   const beginLift = (side: "a" | "b", from: number, clientY: number, pointerId: number) => {
+    const plan = side === "a" ? sideA.plan : sideB.plan;
+    if (plan[from]?.kind === "switch") return;
     const scroller = scrollRef.current;
     if (!scroller) return;
     const base = scroller.getBoundingClientRect().top;
@@ -272,7 +335,8 @@ export function TimelineCustom({
       if (!lifted || !session) return;
       cancelAnimationFrame(session.raf);
       const plan = side === "a" ? sideA.plan : sideB.plan;
-      const next = moveStep(plan, session.from, session.insertAt);
+      const moved = benchA ? moveWithinBoundary(plan, session.from, session.insertAt) : moveStep(plan, session.from, session.insertAt);
+      const next = side === "a" && benchA ? stampSegmentFastTurns(moved, Math.max(1, sideA.fast.turns), Math.max(1, benchA.fast.turns)) : moved;
       const shift = contentShift(session.blocks, session.from, session.insertAt);
       applySession({ ...session, insertAt: session.insertAt }, false);
       const scroller = scrollRef.current;
@@ -295,27 +359,46 @@ export function TimelineCustom({
 
   const fastTurnsA = Math.max(1, sideA.fast.turns);
   const fastTurnsB = Math.max(1, sideB.fast.turns);
+  const followTurns = Math.max(1, benchA?.fast.turns ?? fastTurnsA);
+  const planA = useMemo(
+    () => (benchA ? stampSegmentFastTurns(sideA.plan, fastTurnsA, followTurns) : sideA.plan),
+    [benchA, sideA.plan, fastTurnsA, followTurns],
+  );
   const aligned = useMemo(
     () =>
-      alignPlans(sideA.plan, fastTurnsA, sideB.plan, fastTurnsB, {
+      alignPlans(planA, fastTurnsA, sideB.plan, fastTurnsB, {
         gainA: sideA.fast.energyGain,
         gainB: sideB.fast.energyGain,
         costA: (moveId) => sideA.charged.find((move) => move.id === moveId)?.energy ?? Number.POSITIVE_INFINITY,
         costB: (moveId) => sideB.charged.find((move) => move.id === moveId)?.energy ?? Number.POSITIVE_INFINITY,
+        ...(benchA
+          ? {
+              gainAtA: (stepIndex: number) => benchGain(planA, benchA, stepIndex) ?? sideA.fast.energyGain,
+              costAtA: (moveId: string, stepIndex: number) => {
+                const pool = benchAfter(planA, benchA, stepIndex) ? benchA.charged : sideA.charged;
+                return pool.find((move) => move.id === moveId)?.energy ?? Number.POSITIVE_INFINITY;
+              },
+            }
+          : {}),
       }),
-    [fastTurnsA, fastTurnsB, sideA, sideB],
+    [planA, fastTurnsA, fastTurnsB, sideA, sideB, benchA],
   );
   const hasShort = aligned.a.short.length > 0 || aligned.b.short.length > 0;
   hasShortRef.current = hasShort;
   useEffect(() => {
-    if (!hasShort) setCloseWarned(false);
+    if (!hasShort) {
+      setCloseWarned(false);
+      setCloseArmed(false);
+    }
   }, [hasShort]);
   const tryClose = () => {
-    if (hasShort) {
+    if (hasShort && !closeArmed) {
       setCloseWarned(true);
+      setCloseArmed(true);
       return;
     }
-    onClose();
+    if (hasShort) onDiscard();
+    else onClose();
   };
   const rows = Array.from({ length: aligned.turns }, (_, index) => index + 1);
   useLayoutEffect(() => {
@@ -346,6 +429,28 @@ export function TimelineCustom({
     };
   }, [aligned]);
 
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || shownTurn == null) {
+      setMarkTop(null);
+      return;
+    }
+    const place = () => {
+      const row = scroll.querySelector<HTMLElement>(`tr[data-turn="${shownTurn}"]`);
+      const board = row?.closest<HTMLElement>(".timeline-custom-board");
+      if (!row || !board) {
+        setMarkTop(null);
+        return;
+      }
+      const top = Math.round(row.getBoundingClientRect().bottom - board.getBoundingClientRect().top);
+      setMarkTop((current) => (current === top ? current : top));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(scroll);
+    return () => observer.disconnect();
+  }, [aligned, shownTurn]);
+
   return createPortal(
     <div className="search-overlay is-centered timeline-custom-overlay" role="dialog" aria-modal="true" aria-label="タイムラインカスタム">
       <button type="button" className="search-overlay-backdrop" aria-label="閉じる" onClick={tryClose} />
@@ -354,7 +459,8 @@ export function TimelineCustom({
         <p className="timeline-custom-hint">
           真ん中のターン数をタップすると、その位置に技や待機を追加できます。持ち手を長押しすると、その技を上下に並べ替えられます。
         </p>
-        <div ref={scrollRef} className={`timeline-custom-scroll${dragging ? " is-dragging" : ""}`}>
+        <div ref={scrollRef} className={`timeline-custom-scroll${dragging ? " is-dragging" : ""}${markTop != null ? " has-shown-mark" : ""}`}>
+          <div className="timeline-custom-board">
           <table className="battle-sheet timeline-custom-sheet" aria-label="タイムラインの編集">
             <colgroup>
               <col className="tl-col-grip" />
@@ -368,17 +474,25 @@ export function TimelineCustom({
                 const cellA = spanAt(aligned.a.spans, turn);
                 const cellB = spanAt(aligned.b.spans, turn);
                 return (
-                  <tr key={turn} className={aligned.chargeTurns.includes(turn) ? "has-charge" : undefined}>
+                  <tr
+                    key={turn}
+                    data-turn={turn}
+                    className={aligned.chargeTurns.includes(turn) ? "has-charge" : undefined}
+                  >
                     <SideCells
                       side="a"
                       turn={turn}
                       span={cellA}
-                      fastCount={fastCountAt(sideA.plan, cellA?.stepIndex ?? -1)}
+                      fastCount={fastCountAt(planA, cellA?.stepIndex ?? -1)}
                       short={cellA ? aligned.a.short.includes(cellA.stepIndex) : false}
-                      fast={sideA.fast}
-                      charged={sideA.charged}
+                      fast={benchAfter(planA, benchA, cellA?.stepIndex ?? -1) && benchA ? benchA.fast : sideA.fast}
+                      charged={benchAfter(planA, benchA, cellA?.stepIndex ?? -1) && benchA ? benchA.charged : sideA.charged}
                       moveWash={moveWash}
-                      onDelete={(index) => change("a", deleteStep(sideA.plan, index))}
+                      onDelete={(index) => {
+                        if (planA[index]?.kind === "switch") return;
+                        const removed = deleteStep(planA, index);
+                        change("a", benchA ? stampSegmentFastTurns(removed, fastTurnsA, followTurns) : removed);
+                      }}
                       onGripDown={onGripDown}
                     />
                     <td className="turn">
@@ -412,24 +526,40 @@ export function TimelineCustom({
               })}
             </tbody>
           </table>
+          {markTop != null ? (
+            <div className="timeline-shown-mark" style={{ top: markTop }}>
+              <i />
+              <span>表示中タイムライン最後尾</span>
+            </div>
+          ) : null}
+          </div>
         </div>
-        <div className="sim-iv-actions timeline-custom-actions">
+        <div className="timeline-custom-actions">
           {closeWarned && hasShort ? <p className="timeline-close-warn">ゲージの足りないスペシャルアタックがあります</p> : null}
-          <button type="button" className="btn btn-primary" onClick={tryClose}>
-            閉じる
-          </button>
+          <div className="timeline-close-row">
+            <p className="timeline-close-note">
+              シールド位置の切り替えは
+              <br />
+              別にシールドのカスタムから行ってください
+            </p>
+            <button type="button" className={`btn btn-primary${closeArmed && hasShort ? " is-discard" : ""}`} onClick={tryClose}>
+              {closeArmed && hasShort ? <span className="timeline-close-discard">保存せずに</span> : null}
+              閉じる
+            </button>
+          </div>
         </div>
       </div>
       {insertTurn != null ? (
         <InsertPopup
           turn={insertTurn}
-          sideA={sideA}
+          sideA={insertSideA({ ...sideA, plan: planA }, benchA, insertTurn)}
           sideB={sideB}
           chargeFill={chargeFill}
           onPick={(side, step) => {
-            const placed = insertAtTurn(sideA.plan, fastTurnsA, sideB.plan, fastTurnsB, side, insertTurn, step);
+            const placed = insertAtTurn(planA, fastTurnsA, sideB.plan, fastTurnsB, side, insertTurn, step);
+            const placedA = benchA ? stampSegmentFastTurns(placed.stepsA, fastTurnsA, followTurns) : placed.stepsA;
             const filled = fillLaggingSide(
-              placed.stepsA,
+              placedA,
               fastTurnsA,
               sideA.fast.id,
               sideA.fast.energyGain,
@@ -439,8 +569,9 @@ export function TimelineCustom({
               sideB.fast.id,
               sideB.fast.energyGain,
               sideB.charged,
+              benchA ? { followFast: { id: benchA.fast.id, turns: followTurns } } : undefined,
             );
-            change("a", filled.stepsA);
+            change("a", benchA ? stampSegmentFastTurns(filled.stepsA, fastTurnsA, followTurns) : filled.stepsA);
             change("b", filled.stepsB);
             setInsertTurn(null);
           }}
@@ -452,12 +583,35 @@ export function TimelineCustom({
   );
 }
 
+function switchTurnOf(plan: TimelineStep[], fastTurns: number) {
+  const index = plan.findIndex((step) => step.kind === "switch");
+  if (index < 0) return null;
+  return planTurns(plan.slice(0, index), fastTurns) + 1;
+}
+
+function benchAfter(plan: TimelineStep[], bench: SideEdit | null, stepIndex: number) {
+  if (!bench) return false;
+  const boundary = plan.findIndex((step) => step.kind === "switch");
+  return boundary >= 0 && stepIndex > boundary;
+}
+
+function benchGain(plan: TimelineStep[], bench: SideEdit | null, stepIndex: number) {
+  return benchAfter(plan, bench, stepIndex) ? bench?.fast.energyGain : undefined;
+}
+
+function insertSideA(side: SideEdit, bench: SideEdit | null, turn: number) {
+  if (!bench) return side;
+  const boundary = switchTurnOf(side.plan, Math.max(1, side.fast.turns));
+  if (boundary == null || turn <= boundary) return side;
+  return bench;
+}
+
 function fastCountAt(steps: TimelineStep[], index: number) {
   if (steps[index]?.kind !== "fast") return null;
   let count = 0;
   for (let cursor = index; cursor >= 0; cursor -= 1) {
     const step = steps[cursor];
-    if (!step || step.kind === "charged") break;
+    if (!step || step.kind === "charged" || step.kind === "switch") break;
     if (step.kind === "fast") count += 1;
   }
   return count;
@@ -501,6 +655,25 @@ function SideCells({
     );
   }
   const step = span.step;
+  if (step.kind === "switch") {
+    const cell = (
+      <td className="move is-switch" rowSpan={span.turns} data-tl-side={side} data-tl-step={span.stepIndex} data-tl-part="move">
+        交代
+      </td>
+    );
+    const blank = <td className="tl-grip" rowSpan={span.turns} />;
+    return side === "a" ? (
+      <>
+        {blank}
+        {cell}
+      </>
+    ) : (
+      <>
+        {cell}
+        {blank}
+      </>
+    );
+  }
   const move = step.kind === "charged" ? charged.find((item) => item.id === step.moveId) : step.kind === "fast" ? fast : null;
   const name = step.kind === "wait" ? "待機" : (move?.name ?? "技");
   const wash = short || !move ? undefined : moveWash(move.type);

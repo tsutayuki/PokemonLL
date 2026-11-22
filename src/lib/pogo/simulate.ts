@@ -15,6 +15,7 @@ import {
 import { damageForMove, type PvpMove } from "./combat";
 import { resolveThrowTweak } from "./moveBonusEffect";
 import { stepDuration, type TimelineStep } from "./timelinePlan";
+import { stabMultiplier, typeEffectiveness } from "./types";
 
 export type ChargeTiming = "asap" | "cct";
 export type FighterId = "a" | "b";
@@ -64,6 +65,13 @@ export type FighterInput = {
   miniorMeteor?: { attack: number; defense: number } | null;
   /** 流星の姿を選んだメテノ。半分を下回ったあとのコアの攻撃と防御。 */
   miniorCore?: { attack: number; defense: number } | null;
+  /** 後追い。自分の初手が交代し、引き先か相手が倒れるまで続ける。 */
+  follow?: FollowPlan | null;
+  /**
+   * 後追い初手の自動手順だけ。ゲージが足りたスペシャルを、余りノーマルの範囲で最適タイミングまで遅らせる。
+   * タイムラインカスタムと最短では付けない。
+   */
+  scriptCct?: boolean;
 };
 
 export type SwitchPlan = {
@@ -109,6 +117,8 @@ export type TimelineEvent = {
   line: number;
   /** スペシャルと同じ下線。メテノのフォルムチェンジ。 */
   chargeLine?: boolean;
+  /** 後追いで、自分側のどのポケモンの行動か。 */
+  mon?: "lead" | "back";
   spriteId?: number;
   spriteForm?: string;
   /** このスペシャルを、相手が化けの皮で受けた。 */
@@ -126,6 +136,57 @@ export type SimResult = {
   energyB: number;
   rating: number;
   timeline: TimelineEvent[];
+  shieldsLeftA: number;
+  shieldsLeftB: number;
+  /** 倒し切れるスペシャルが溜まっていたのに、次のターンで撃たなかったターン。 */
+  koMissA: number[];
+  koMissB: number[];
+  /** 後追いの内訳。通常の1対1では null。 */
+  follow: FollowResult | null;
+};
+
+export type FollowPokemon = {
+  label: string;
+  attack: number;
+  defense: number;
+  hp: number;
+  types: string[];
+  shadow: boolean;
+  fast: PvpMove;
+  charged: PvpMove[];
+  speciesId?: number;
+  form?: string;
+  aegislash?: FighterInput["aegislash"];
+  miniorMeteor?: FighterInput["miniorMeteor"];
+  miniorCore?: FighterInput["miniorCore"];
+  timing: ChargeTiming;
+  applyChanceBuffs: boolean;
+  chargedQueue?: (string | null)[] | null;
+  timelinePlan?: TimelineStep[] | null;
+  startHp?: number;
+  startEnergy?: number;
+  startAttackStage?: number;
+  startDefenseStage?: number;
+};
+
+export type FollowPlan = {
+  next: FollowPokemon;
+  /** 1始まり。このターンは初手を見て技を決めてから交代する。 */
+  switchTurn: number;
+};
+
+export type FollowResult = {
+  /** 評価に使った自分側。交代前に勝つと lead。 */
+  active: "lead" | "back";
+  earlyWin: boolean;
+  switched: boolean;
+  backEntered: boolean;
+  leadHp: number;
+  leadMaxHp: number;
+  leadEnergy: number;
+  backHp: number;
+  backMaxHp: number;
+  backEnergy: number;
 };
 
 type Action = {
@@ -151,7 +212,16 @@ type FighterState = FighterInput & {
   /** ゲージが足りてから、まだ撃たずに通したノーマルアタックの数。 */
   farmed: number;
   thrown: number;
+  queueCursor: number;
   received: number;
+  switched: boolean;
+  backEntered: boolean;
+  faintSwitchTurn: number;
+  entryLock: number;
+  leadHp: number;
+  leadEnergy: number;
+  leadMaxHp: number;
+  activeMon: "lead" | "back";
   speciesId: number;
   formName: string;
   maxHp: number;
@@ -169,6 +239,8 @@ type FighterState = FighterInput & {
   miniorCoreDefense: number;
   miniorMeteorAttack: number;
   miniorMeteorDefense: number;
+  /** 手順配列をこの対戦用に複製した。入力側の配列は書き換えない。 */
+  planDetached?: boolean;
 };
 
 function clampStage(value: number) {
@@ -206,6 +278,55 @@ function cctTurnsLeft(myTurns: number, oppTurns: number) {
   return table[key] ?? null;
 }
 
+/** 1〜4ターンの表と同じ規則を、5ターンの相手まで伸ばしたもの。 */
+function extendedCctTurnsLeft(myTurns: number, oppTurns: number) {
+  if (oppTurns <= 1) return null;
+  if (myTurns % oppTurns === 0) return null;
+  if (myTurns < oppTurns && oppTurns % myTurns === 0) return myTurns;
+  return 1;
+}
+
+function leadScriptThrowNow(self: FighterState, other: FighterState, move: PvpMove) {
+  if (other.shieldsLeft === 0 && damageOf(self, other, move) >= other.hp) return true;
+  if (self.fast.turns <= 4 && other.fast.turns <= 4) return shouldThrow(self, other, move);
+  const needed = extendedCctTurnsLeft(self.fast.turns, other.fast.turns);
+  if (needed == null) return true;
+  return other.action?.kind === "fast" && other.action.turnsLeft === needed;
+}
+
+function chargeCost(self: FighterState, moveId: string) {
+  return self.charged.find((move) => move.id === moveId)?.energy ?? null;
+}
+
+/** このファストを今のスペシャルの前へ動かしても、後ろのスペシャルのゲージが足りるか。 */
+function canSlideFastBefore(self: FighterState, plan: TimelineStep[], chargeIndex: number, fastIndex: number) {
+  const gain = Math.max(0, self.fast.energyGain);
+  let gauge = Math.min(100, self.energy + gain);
+  for (let index = chargeIndex; index < plan.length; index += 1) {
+    if (index === fastIndex) continue;
+    const step = plan[index];
+    if (!step || step.kind === "wait" || step.kind === "switch") continue;
+    if (step.kind === "fast") {
+      gauge = Math.min(100, gauge + gain);
+      continue;
+    }
+    const cost = chargeCost(self, step.moveId);
+    if (cost == null || gauge < cost) return false;
+    gauge = Math.max(0, gauge - cost);
+  }
+  return true;
+}
+
+function spareFastAfter(self: FighterState, chargeIndex: number) {
+  const plan = self.timelinePlan;
+  if (!plan) return -1;
+  for (let index = plan.length - 1; index > chargeIndex; index -= 1) {
+    if (plan[index]?.kind !== "fast") continue;
+    if (canSlideFastBefore(self, plan, chargeIndex, index)) return index;
+  }
+  return -1;
+}
+
 function snapshot(a: FighterState, b: FighterState) {
   return {
     hpA: Math.max(0, a.hp),
@@ -235,13 +356,13 @@ function damageOf(self: FighterState, other: FighterState, move: PvpMove) {
 function pickCharged(self: FighterState, other: FighterState) {
   if (self.chargedQueue) {
     const queue = self.chargedQueue;
-    while (self.thrown < queue.length && queue[self.thrown] == null) {
-      const rest = queue.slice(self.thrown);
+    while (self.queueCursor < queue.length && queue[self.queueCursor] == null) {
+      const rest = queue.slice(self.queueCursor);
       if (rest.every((slot) => slot == null)) return null;
-      self.thrown += 1;
+      self.queueCursor += 1;
     }
-    if (self.thrown >= queue.length) return null;
-    const chosen = self.charged.find((move) => move.id === queue[self.thrown]) ?? null;
+    if (self.queueCursor >= queue.length) return null;
+    const chosen = self.charged.find((move) => move.id === queue[self.queueCursor]) ?? null;
     if (!chosen || self.energy < chosen.energy) return null;
     return chosen;
   }
@@ -292,12 +413,28 @@ function farmTarget(self: FighterState, other: FighterState) {
 function shouldThrow(self: FighterState, other: FighterState, move: PvpMove) {
   if (other.shieldsLeft === 0 && damageOf(self, other, move) >= other.hp) return true;
   if (self.timing === "asap") return true;
-  if (self.fast.turns >= 3) return self.farmed >= farmTarget(self, other);
+  // 相手が5ターンのときは、0～2回の近似を使わず、残りターンが合うまで待つ。
+  if (self.fast.turns >= 3 && other.fast.turns < 5) return self.farmed >= farmTarget(self, other);
 
-  const needed = cctTurnsLeft(self.fast.turns, other.fast.turns);
+  const needed = other.fast.turns >= 5
+    ? extendedCctTurnsLeft(self.fast.turns, other.fast.turns)
+    : cctTurnsLeft(self.fast.turns, other.fast.turns);
   if (needed == null) return true;
   if (other.action?.kind === "fast" && other.action.turnsLeft === needed) return true;
   return false;
+}
+
+/** 今の残りHPを、シールドと化けの皮を考慮して倒し切れるスペシャル。 */
+function lethalMoveIds(self: FighterState, other: FighterState) {
+  const ids = new Set<string>();
+  if (self.hp <= 0 || other.hp <= 0) return ids;
+  for (const move of self.charged) {
+    if (move.energy <= 0 || self.energy < move.energy) continue;
+    const raw = damageOf(self, other, move);
+    const damage = other.shieldsLeft > 0 || other.disguiseReady ? 1 : raw;
+    if (damage >= other.hp) ids.add(move.id);
+  }
+  return ids;
 }
 
 function wantsShield(defender: FighterState) {
@@ -452,6 +589,81 @@ function applySwitch(fighter: FighterState, next: SwitchPlan["next"], mimicBuste
   if (fighter.speciesId === 778 && mimicBusted) fighter.defenseStage = -1;
 }
 
+function rememberLead(fighter: FighterState) {
+  if (fighter.switched) return;
+  fighter.leadHp = Math.max(0, fighter.hp);
+  fighter.leadEnergy = fighter.energy;
+  fighter.leadMaxHp = fighter.maxHp;
+}
+
+function applyFollowSwitch(fighter: FighterState) {
+  const next = fighter.follow?.next;
+  if (!next || fighter.switched) return;
+  rememberLead(fighter);
+  const shieldsLeft = fighter.shieldsLeft;
+  const received = fighter.received;
+  const thrown = fighter.thrown;
+  const throwTweaks = fighter.throwTweaks;
+  const shieldThrows = fighter.shieldThrows;
+  const shields = fighter.shields;
+  const id = fighter.id;
+  Object.assign(fighter, {
+    ...next,
+    id,
+    shields,
+    shieldsLeft,
+    shieldThrows,
+    throwTweaks,
+    thrown,
+    received,
+    follow: fighter.follow,
+    switchPlan: null,
+    energy: clampEnergy(next.startEnergy ?? 0),
+    attackStage: clampStage(next.startAttackStage ?? 0),
+    defenseStage: clampStage(next.startDefenseStage ?? 0),
+    action: null,
+    hp: clampStartHp(next.startHp, next.hp),
+    farmed: 0,
+    planIndex: 0,
+    queueCursor: 0,
+    timelinePlan: next.timelinePlan ?? null,
+    chargedQueue: next.chargedQueue ?? null,
+    timing: next.timing,
+    applyChanceBuffs: next.applyChanceBuffs,
+    scriptCct: false,
+    planDetached: false,
+  });
+  initTraits(
+    fighter,
+    {
+      label: next.label,
+      attack: next.attack,
+      defense: next.defense,
+      hp: next.hp,
+      types: next.types,
+      shadow: next.shadow,
+      fast: next.fast,
+      charged: next.charged,
+      shields,
+      timing: next.timing,
+      applyChanceBuffs: next.applyChanceBuffs,
+      speciesId: next.speciesId,
+      form: next.form,
+      aegislash: next.aegislash,
+      miniorMeteor: next.miniorMeteor,
+      miniorCore: next.miniorCore,
+    },
+    false,
+  );
+  fighter.attackStage = clampStage(next.startAttackStage ?? 0);
+  fighter.defenseStage = clampStage(next.startDefenseStage ?? 0);
+  fighter.hp = clampStartHp(next.startHp, fighter.maxHp);
+  fighter.switched = true;
+  fighter.backEntered = true;
+  fighter.activeMon = "back";
+  fighter.faintSwitchTurn = 0;
+}
+
 function createFighter(id: FighterId, input: FighterInput): FighterState {
   const maxHp = Math.max(0, input.hp);
   const fighter: FighterState = {
@@ -466,7 +678,16 @@ function createFighter(id: FighterId, input: FighterInput): FighterState {
     planIndex: 0,
     farmed: 0,
     thrown: 0,
+    queueCursor: 0,
     received: 0,
+    switched: false,
+    backEntered: false,
+    faintSwitchTurn: 0,
+    entryLock: 0,
+    leadHp: clampStartHp(input.startHp, maxHp),
+    leadEnergy: clampEnergy(input.startEnergy ?? 0),
+    leadMaxHp: maxHp,
+    activeMon: "lead",
     speciesId: 0,
     formName: "",
     maxHp,
@@ -495,6 +716,9 @@ export function simulateBattle(inputA: FighterInput, inputB: FighterInput): SimR
   if (plansA || plansB) {
     const listA = plansA ?? [inputA.shieldThrows ?? []];
     const listB = plansB ?? [inputB.shieldThrows ?? []];
+    const tie = tieContext(inputA, inputB);
+    // 後追いだけ、指定枚数を実際に使えるならその中から選ぶ。通常は評価が先。
+    const chaseShields = Boolean(inputA.follow || inputB.follow);
     let bestForA: SimResult | null = null;
     for (const planA of listA) {
       let bestForB: SimResult | null = null;
@@ -503,13 +727,38 @@ export function simulateBattle(inputA: FighterInput, inputB: FighterInput): SimR
           { ...inputA, shieldThrows: planA },
           { ...inputB, shieldThrows: planB },
         );
-        if (!bestForB || preferDefender(result, bestForB)) bestForB = result;
+        if (!bestForB || preferChaseShield(result, bestForB, "b", inputB.shields, chaseShields, tie, preferDefender)) {
+          bestForB = result;
+        }
       }
-      if (bestForB && (!bestForA || preferAttacker(bestForB, bestForA))) bestForA = bestForB;
+      if (
+        bestForB &&
+        (!bestForA || preferChaseShield(bestForB, bestForA, "a", inputA.shields, chaseShields, tie, preferAttacker))
+      ) {
+        bestForA = bestForB;
+      }
     }
     return bestForA ?? simulateMoves(inputA, inputB);
   }
   return simulateMoves(inputA, inputB);
+}
+
+/** 後追いは、指定枚数を使えた候補を評価より先に残す。使えなければ通常の順位に戻る。 */
+function preferChaseShield(
+  next: SimResult,
+  current: SimResult,
+  actor: FighterId,
+  shields: number,
+  chaseShields: boolean,
+  tie: TieContext,
+  prefer: (next: SimResult, current: SimResult, tie: TieContext) => boolean,
+) {
+  if (chaseShields) {
+    const nextFull = shieldsSpent(next.timeline, actor) === shields;
+    const currentFull = shieldsSpent(current.timeline, actor) === shields;
+    if (nextFull !== currentFull) return nextFull;
+  }
+  return prefer(next, current, tie);
 }
 
 function shieldPlanOptions(count: number) {
@@ -532,16 +781,96 @@ function shieldPlanOptions(count: number) {
   return plans;
 }
 
-/** 評価が高い方を優先し、同じなら自分の残りゲージが多い方。 */
-function preferAttacker(next: SimResult, current: SimResult) {
+type TieSide = { shields: number; bestMoves: Set<string>; mon?: "lead" | "back" };
+
+type TieContext = { a: TieSide; b: TieSide };
+
+/** タイプ一致と相性を含めた威力を、消費ゲージで割る。 */
+function chargedDpe(move: PvpMove, attackerTypes: string[], defenderTypes: string[]) {
+  if (move.energy <= 0) return 0;
+  const power = move.power * stabMultiplier(move.type, attackerTypes) * typeEffectiveness(move.type, defenderTypes);
+  return power / move.energy;
+}
+
+function bestChargedMoves(input: FighterInput, defenderTypes: string[]) {
+  const follow = input.follow?.next;
+  // 後追いは引き先の技だけでDPEを比べる。初手の技は同点判定に入れない。
+  const groups = follow
+    ? [{ moves: follow.charged, types: follow.types }]
+    : [{ moves: input.charged, types: input.types }];
+  const planned = input.switchPlan?.next;
+  if (planned && !follow) groups.push({ moves: planned.charged, types: planned.types });
+  let best = Number.NEGATIVE_INFINITY;
+  const ids: string[] = [];
+  for (const group of groups) {
+    for (const move of group.moves) {
+      const dpe = chargedDpe(move, group.types, defenderTypes);
+      if (dpe > best + 1e-9) {
+        best = dpe;
+        ids.length = 0;
+        ids.push(move.id);
+      } else if (Math.abs(dpe - best) <= 1e-9 && !ids.includes(move.id)) ids.push(move.id);
+    }
+  }
+  return new Set(ids);
+}
+
+function tieContext(inputA: FighterInput, inputB: FighterInput): TieContext {
+  return {
+    a: {
+      shields: inputA.shields,
+      bestMoves: bestChargedMoves(inputA, inputB.types),
+      mon: inputA.follow ? "back" : undefined,
+    },
+    b: {
+      shields: inputB.shields,
+      bestMoves: bestChargedMoves(inputB, inputA.types),
+      mon: inputB.follow ? "back" : undefined,
+    },
+  };
+}
+
+/** 指定した枚数を、実際に使った側を数える。 */
+function shieldFidelity(result: SimResult, tie: TieContext) {
+  const usedA = shieldsSpent(result.timeline, "a") === tie.a.shields ? 1 : 0;
+  const usedB = shieldsSpent(result.timeline, "b") === tie.b.shields ? 1 : 0;
+  return usedA + usedB;
+}
+
+function bestMoveThrows(result: SimResult, actor: FighterId, side: TieSide) {
+  if (!side.bestMoves.size) return 0;
+  const seen = new Set<number>();
+  let count = 0;
+  for (const event of result.timeline) {
+    if (event.actor !== actor || event.kind !== "charged" || !side.bestMoves.has(event.moveId) || seen.has(event.actionId)) continue;
+    if (side.mon && event.mon !== side.mon) continue;
+    seen.add(event.actionId);
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * 評価が違うときは評価だけを見る。
+ * 同じ評価のときは、指定枚数のシールドを使った方、DPEが一番高い技を多く撃った方、残りゲージの順。
+ */
+function preferAttacker(next: SimResult, current: SimResult, tie: TieContext) {
   if (next.rating !== current.rating) return next.rating > current.rating;
+  const shields = shieldFidelity(next, tie) - shieldFidelity(current, tie);
+  if (shields !== 0) return shields > 0;
+  const moves = bestMoveThrows(next, "a", tie.a) - bestMoveThrows(current, "a", tie.a);
+  if (moves !== 0) return moves > 0;
   if (next.energyA !== current.energyA) return next.energyA > current.energyA;
   return next.energyB > current.energyB;
 }
 
-/** 評価が低い方を優先し、同じなら相手の残りゲージが多い方。 */
-function preferDefender(next: SimResult, current: SimResult) {
+/** 評価が違うときは、相手が自分の評価を下げる方だけを見る。同点の順位は preferAttacker と同じ。 */
+function preferDefender(next: SimResult, current: SimResult, tie: TieContext) {
   if (next.rating !== current.rating) return next.rating < current.rating;
+  const shields = shieldFidelity(next, tie) - shieldFidelity(current, tie);
+  if (shields !== 0) return shields > 0;
+  const moves = bestMoveThrows(next, "b", tie.b) - bestMoveThrows(current, "b", tie.b);
+  if (moves !== 0) return moves > 0;
   if (next.energyB !== current.energyB) return next.energyB > current.energyB;
   return next.energyA > current.energyA;
 }
@@ -552,8 +881,22 @@ function preferDefender(next: SimResult, current: SimResult) {
  * 片方のカスタムは、もう片方の最適探索を止めない。
  */
 function moveChoices(input: FighterInput): FighterInput[] {
-  if (input.timelinePlan || input.chargedQueue || input.charged.length <= 1) return [input];
-  return input.charged.map((move) => ({ ...input, charged: [move], chargedQueue: null }));
+  const lead =
+    input.timelinePlan || input.chargedQueue || input.charged.length <= 1
+      ? [input]
+      : input.charged.map((move) => ({ ...input, charged: [move], chargedQueue: null }));
+  const expanded: FighterInput[] = [];
+  for (const item of lead) {
+    const next = item.follow?.next;
+    if (!item.follow || !next || next.timelinePlan || next.chargedQueue || next.charged.length <= 1) {
+      expanded.push(item);
+      continue;
+    }
+    for (const move of next.charged) {
+      expanded.push({ ...item, follow: { ...item.follow, next: { ...next, charged: [move], chargedQueue: null } } });
+    }
+  }
+  return expanded;
 }
 
 function simulateMoves(inputA: FighterInput, inputB: FighterInput): SimResult {
@@ -561,14 +904,15 @@ function simulateMoves(inputA: FighterInput, inputB: FighterInput): SimResult {
   const optionsB = moveChoices(inputB);
   if (optionsA.length === 1 && optionsB.length === 1) return simulateLocked(optionsA[0], optionsB[0]);
 
+  const tie = tieContext(inputA, inputB);
   let bestForA: SimResult | null = null;
   for (const nextA of optionsA) {
     let bestForB: SimResult | null = null;
     for (const nextB of optionsB) {
       const result = simulateLocked(nextA, nextB);
-      if (!bestForB || preferDefender(result, bestForB)) bestForB = result;
+      if (!bestForB || preferDefender(result, bestForB, tie)) bestForB = result;
     }
-    if (bestForB && (!bestForA || preferAttacker(bestForB, bestForA))) bestForA = bestForB;
+    if (bestForB && (!bestForA || preferAttacker(bestForB, bestForA, tie))) bestForA = bestForB;
   }
   return bestForA ?? simulateLocked(inputA, inputB);
 }
@@ -576,25 +920,125 @@ function simulateMoves(inputA: FighterInput, inputB: FighterInput): SimResult {
 function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
   const a = createFighter("a", inputA);
   const b = createFighter("b", inputB);
-  const maxHpA = inputA.hp;
   const maxHpB = inputB.hp;
   const timeline: TimelineEvent[] = [];
+  const koMissA = new Set<number>();
+  const koMissB = new Set<number>();
+  let bankedKo: { turn: number; a: Set<string>; b: Set<string> } | null = null;
   let nextActionId = 1;
   let mimikyuBusted = false;
 
+  const conclude = (turn: number, timedOut = false): SimResult => {
+    const bench = a.follow?.next ?? null;
+    const bothDown = a.hp <= 0 && b.hp <= 0;
+    const benchSaves = Boolean(bench && !a.switched && bothDown && !timedOut);
+    if (!a.switched) rememberLead(a);
+    const backMax = Math.max(1, bench?.hp ?? a.leadMaxHp);
+    const backHp = a.backEntered ? Math.max(0, a.hp) : clampStartHp(bench?.startHp, bench?.hp ?? 0);
+    const backEnergy = a.backEntered ? a.energy : clampEnergy(bench?.startEnergy ?? 0);
+    const winner: FighterId | "draw" = timedOut
+      ? "draw"
+      : benchSaves
+        ? "a"
+        : a.hp <= 0 && b.hp <= 0
+          ? "draw"
+          : a.hp > 0
+            ? "a"
+            : "b";
+    const earlyWin = Boolean(a.follow && !a.switched && !benchSaves && winner === "a" && b.hp <= 0 && a.leadHp > 0);
+    const active = earlyWin ? "lead" : a.switched || benchSaves ? "back" : "lead";
+    const selfHp = active === "back" ? backHp : Math.max(0, a.switched ? a.leadHp : a.hp);
+    const selfMax = Math.max(1, active === "back" ? backMax : a.leadMaxHp);
+    const rating =
+      winner === "draw"
+        ? 100
+        : winner === "a"
+          ? 100 + Math.round((100 * selfHp) / selfMax)
+          : 100 - Math.round((100 * Math.max(0, b.hp)) / Math.max(1, maxHpB));
+    return {
+      winner,
+      turns: turn,
+      hpA: active === "back" ? backHp : Math.max(0, a.hp),
+      hpB: Math.max(0, b.hp),
+      maxHpA: active === "back" ? backMax : a.leadMaxHp,
+      maxHpB,
+      energyA: active === "back" ? backEnergy : a.energy,
+      energyB: b.energy,
+      rating,
+      timeline,
+      shieldsLeftA: a.shieldsLeft,
+      shieldsLeftB: b.shieldsLeft,
+      koMissA: [...koMissA],
+      koMissB: [...koMissB],
+      follow: a.follow
+        ? {
+            active,
+            earlyWin,
+            switched: a.switched,
+            backEntered: a.backEntered,
+            leadHp: Math.max(0, a.leadHp),
+            leadMaxHp: a.leadMaxHp,
+            leadEnergy: a.leadEnergy,
+            backHp,
+            backMaxHp: backMax,
+            backEnergy,
+          }
+        : null,
+    };
+  };
+
   for (let turn = 1; turn <= 480; turn += 1) {
+    const leadSwitchNotes: FighterId[] = [];
+    let faintEntered: FighterId | null = null;
+    if (a.faintSwitchTurn === turn && !a.switched) {
+      applyFollowSwitch(a);
+      faintEntered = "a";
+      a.entryLock = turn;
+      a.action = null;
+      b.action = null;
+    }
     for (const [self, other] of [
       [a, b],
       [b, a],
     ] as const) {
-      if (self.hp <= 0) continue;
-      if (self.switchPlan?.turn === turn) {
+      if (self.hp <= 0 || self.entryLock === turn) continue;
+      const scriptedSwitchNow = Boolean(
+        self.follow && !self.switched && self.follow.switchTurn === turn && self.faintSwitchTurn === 0,
+      );
+      if (self.switchPlan?.turn === turn || scriptedSwitchNow) {
         self.action = null;
         continue;
       }
       if (self.action) continue;
+      const holdForSwitch = Boolean(self.follow && !self.switched && turn < self.follow.switchTurn);
       if (self.timelinePlan && self.planIndex < self.timelinePlan.length) {
         const step = self.timelinePlan[self.planIndex];
+        if (self.scriptCct && !self.switched && self.timing === "cct" && step?.kind === "charged") {
+          const ready = self.charged.find((item) => item.id === step.moveId);
+          if (ready && self.energy >= ready.energy && !leadScriptThrowNow(self, other, ready)) {
+            const fastAt = spareFastAfter(self, self.planIndex);
+            if (fastAt >= 0 && self.timelinePlan) {
+              if (!self.planDetached) {
+                self.timelinePlan = self.timelinePlan.slice();
+                self.planDetached = true;
+              }
+              self.timelinePlan.splice(fastAt, 1);
+              self.farmed += 1;
+              const sneakTurns = Math.max(1, self.fast.turns);
+              self.action = {
+                kind: "fast",
+                move: self.fast,
+                turnsLeft: sneakTurns,
+                totalTurns: sneakTurns,
+                id: nextActionId++,
+                startTurn: turn,
+                cct: true,
+                scripted: true,
+              };
+              continue;
+            }
+          }
+        }
         self.planIndex += 1;
         if (step?.kind === "charged") {
           const move = self.charged.find((item) => item.id === step.moveId);
@@ -623,9 +1067,12 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
             cct: false,
             scripted: true,
           };
+        } else if (step?.kind === "wait" && step.show === "交代") {
+          leadSwitchNotes.push(self.id);
         }
         continue;
       }
+      if (holdForSwitch) continue;
       const charged = pickCharged(self, other);
       if (charged && shouldThrow(self, other, charged)) {
         self.farmed = 0;
@@ -672,6 +1119,9 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       spriteId?: number;
       spriteForm?: string;
     }[] = [];
+    for (const actor of leadSwitchNotes) {
+      notes.push({ actor, line: 0, name: "交代", damage: 0, chargeLine: false });
+    }
     const shellBroke = new Set<FighterId>();
     const markShell = (defender: FighterState) => {
       if (defender.minior === "meteor" && defender.hp > 0 && belowHalf(defender.hp, defender.maxHp)) {
@@ -681,13 +1131,22 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
 
     // 1. 交代。1ターンを使い、出てきたポケモンはこのターン技を出さない。
     for (const fighter of [a, b]) {
+      if (fighter.follow && !fighter.switched && fighter.hp > 0 && fighter.follow.switchTurn === turn) {
+        applyFollowSwitch(fighter);
+        notes.push({ actor: fighter.id, line: 0, name: "交代", damage: 0, chargeLine: false });
+        continue;
+      }
       if (fighter.hp <= 0 || fighter.switchPlan?.turn !== turn) continue;
       applySwitch(fighter, fighter.switchPlan.next, mimikyuBusted);
+    }
+    if (faintEntered) {
+      notes.push({ actor: faintEntered, line: 0, name: "交代", damage: 0, chargeLine: false });
     }
 
     // 2. スペシャルアタック。攻撃の実数値が高い順。シャドウは入れない。同値ならランダム。1発ごとに戦闘不能を見る。
     const chargers = chargeOrder([a, b].filter((fighter) => fighter.action?.kind === "charged" && fighter.hp > 0));
     const resolved = new Set<number>();
+    const threwCharged = new Set<FighterId>();
     let faintedFromSpecial = false;
     let specialLanded = false;
     for (const self of chargers) {
@@ -710,6 +1169,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       const throwIndex = self.thrown;
       const tweak = resolveThrowTweak(self.throwTweaks?.[throwIndex] ?? null, action.move);
       self.thrown += 1;
+      if (self.chargedQueue) self.queueCursor += 1;
       if (isAuraWheel(action.move) && self.speciesId === 877) shownType[self.id] = auraWheelType(self.firedSpecials);
       let damage = 0;
       let shielded = false;
@@ -775,6 +1235,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       markShell(other);
       dealt[self.id] = { damage, shielded, throwIndex, disguise };
       resolved.add(action.id);
+      threwCharged.add(self.id);
       self.action = null;
       specialLanded = true;
       if (a.hp <= 0 || b.hp <= 0) {
@@ -796,7 +1257,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       const strikeFast = (self: FighterState) => {
         const other = self.id === "a" ? b : a;
         const action = self.action;
-        if (!action || self.hp <= 0) return;
+        if (!action) return;
         self.energy = Math.min(100, self.energy + action.move.energyGain);
         const damage = other.hp > 0 ? damageOf(self, other, action.move) : 0;
         if (other.hp > 0) other.hp -= damage;
@@ -808,7 +1269,15 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
       for (const fighter of [a, b]) {
         if (fighter.action?.kind !== "fast" || fighter.hp <= 0) continue;
         fighter.action.turnsLeft -= 1;
-        if (specialLanded && fighter.action.turnsLeft > 0) fighter.action.turnsLeft = 0;
+        if (specialLanded && fighter.action.turnsLeft > 0) {
+          const discarded = fighter.action.turnsLeft;
+          fighter.action.turnsLeft = 0;
+          // 手順上の長さで決めた交代は、打ち切って捨てたターンの分だけ前にずらす。
+          const follow = fighter.follow;
+          if (fighter.action.scripted && follow && !fighter.switched && follow.switchTurn > turn) {
+            fighter.follow = { ...follow, switchTurn: Math.max(turn + 1, follow.switchTurn - discarded) };
+          }
+        }
         if (fighter.action.turnsLeft <= 0) finishing.push(fighter);
       }
       for (const self of finishing) strikeFast(self);
@@ -846,6 +1315,7 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         scripted: action.scripted,
         line: moveLine[fighter.id],
         disguise: action.kind === "charged" ? dealt[fighter.id].disguise : false,
+        mon: fighter.id === "a" ? fighter.activeMon : undefined,
         ...snap,
       });
     }
@@ -867,45 +1337,74 @@ function simulateLocked(inputA: FighterInput, inputB: FighterInput): SimResult {
         chargeLine: note.chargeLine,
         spriteId: note.spriteId,
         spriteForm: note.spriteForm,
+        mon: note.actor === "a" ? a.activeMon : undefined,
         ...snap,
       });
     }
 
+    // 自分のスペシャルの直後に予定されていた交代は、そのターンの最後に付け、次のターンを使わない。
+    for (const fighter of [a, b]) {
+      if (!threwCharged.has(fighter.id) || fighter.hp <= 0 || fighter.switched) continue;
+      const follow = fighter.follow;
+      if (!follow || follow.switchTurn !== turn + 1 || fighter.faintSwitchTurn !== 0) continue;
+      const other = fighter.id === "a" ? b : a;
+      if (other.hp <= 0) continue;
+      applyFollowSwitch(fighter);
+      const after = snapshot(a, b);
+      let line = 1;
+      while (timeline.some((event) => event.turn === turn && event.actor === fighter.id && (event.line ?? 0) === line)) line += 1;
+      timeline.push({
+        turn,
+        actor: fighter.id,
+        kind: "note",
+        moveName: "交代",
+        moveType: "",
+        damage: 0,
+        shielded: false,
+        actionId: nextActionId++,
+        cct: false,
+        throwIndex: null,
+        moveId: "",
+        scripted: false,
+        line,
+        mon: fighter.id === "a" ? fighter.activeMon : undefined,
+        ...after,
+      });
+    }
+
+    if (bankedKo) {
+      const threw = (side: FighterId, ids: Set<string>) =>
+        timeline.some((event) => event.turn === turn && event.actor === side && event.kind === "charged" && ids.has(event.moveId));
+      if (bankedKo.a.size && !threw("a", bankedKo.a)) koMissA.add(bankedKo.turn);
+      if (bankedKo.b.size && !threw("b", bankedKo.b)) koMissB.add(bankedKo.turn);
+    }
+    bankedKo = a.hp > 0 && b.hp > 0 ? { turn, a: lethalMoveIds(a, b), b: lethalMoveIds(b, a) } : null;
+
     if (a.hp <= 0 || b.hp <= 0) {
-      const winner = a.hp <= 0 && b.hp <= 0 ? "draw" : a.hp > 0 ? "a" : "b";
-      const rating =
-        winner === "draw"
-          ? 100
-          : winner === "a"
-            ? 100 + Math.round((100 * Math.max(0, a.hp)) / maxHpA)
-            : 100 - Math.round((100 * Math.max(0, b.hp)) / maxHpB);
-      return {
-        winner,
-        turns: turn,
-        hpA: Math.max(0, a.hp),
-        hpB: Math.max(0, b.hp),
-        maxHpA,
-        maxHpB,
-        energyA: a.energy,
-        energyB: b.energy,
-        rating,
-        timeline,
-      };
+      if (a.follow && !a.switched && a.hp <= 0 && b.hp > 0) {
+        a.faintSwitchTurn = turn + 1;
+        a.action = null;
+        b.action = null;
+        continue;
+      }
+      return conclude(turn);
     }
   }
 
-  return {
-    winner: "draw",
-    turns: 480,
-    hpA: Math.max(0, a.hp),
-    hpB: Math.max(0, b.hp),
-    maxHpA,
-    maxHpB,
-    energyA: a.energy,
-    energyB: b.energy,
-    rating: 100,
-    timeline,
-  };
+  return conclude(480, true);
+}
+
+export function shieldsSpent(timeline: TimelineEvent[], defender: "a" | "b") {
+  const attacker = defender === "a" ? "b" : "a";
+  const seen = new Set<number>();
+  let count = 0;
+  for (const event of timeline) {
+    if (event.actor !== attacker || event.kind !== "charged" || !event.shielded) continue;
+    if (seen.has(event.actionId)) continue;
+    seen.add(event.actionId);
+    count += 1;
+  }
+  return count;
 }
 
 export function simulateShieldGrid(inputA: FighterInput, inputB: FighterInput) {
